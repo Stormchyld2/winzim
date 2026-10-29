@@ -34,7 +34,7 @@ jobs:
           python tests/test_app_logic.py
           python tests/test_bookui_logic.py
       - name: Build exe
-        run: python -m PyInstaller --onefile --windowed --name CindrixRecon app.py
+        run: python -m PyInstaller --onefile --windowed --name CindrixRecon --icon assets\cindrix.ico --add-data "assets;assets" app.py
       - uses: actions/upload-artifact@v4
         with:
           name: CindrixRecon-exe

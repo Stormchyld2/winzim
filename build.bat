@@ -3,7 +3,7 @@ REM Builds dist\CindrixRecon.exe - a single file with Python bundled inside.
 REM You only need Python on THIS machine to build; the exe itself needs nothing.
 REM (Prefer not to install Python? Use the GitHub Actions build instead - see README.)
 python -m pip install --upgrade pyinstaller -r requirements.txt
-python -m PyInstaller --onefile --windowed --name CindrixRecon app.py
+python -m PyInstaller --onefile --windowed --name CindrixRecon --icon assets\cindrix.ico --add-data "assets;assets" app.py
 echo.
 echo Done. Your app is at dist\CindrixRecon.exe
 pause

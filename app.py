@@ -6,6 +6,7 @@ Engines:
 """
 import datetime
 import os
+import sys
 import queue
 import re
 import shutil
@@ -99,9 +100,22 @@ def default_filename(url):
 
 
 class App(tk.Tk):
+    def set_window_icon(self):
+        """The flame instead of Tk's default feather icon. Never stops the program if the file is missing."""
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        try:
+            if sys.platform == "win32":
+                self.iconbitmap(os.path.join(base, "assets", "cindrix.ico"))
+            else:
+                self._icon_img = tk.PhotoImage(file=os.path.join(base, "assets", "cindrix.png"))
+                self.iconphoto(True, self._icon_img)
+        except Exception:
+            pass
+
     def __init__(self):
         super().__init__()
         self.title(f"{APP_NAME} - site and book collection")
+        self.set_window_icon()
         self.geometry("880x800")
         self.minsize(800, 680)
         self.q = queue.Queue()

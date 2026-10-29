@@ -6,6 +6,7 @@ AppPublisher=Cindrix
 DefaultDirName={autopf}\Cindrix Recon
 DefaultGroupName=Cindrix Recon
 UninstallDisplayIcon={app}\CindrixRecon.exe
+SetupIconFile=assets\cindrix.ico
 OutputDir=installer
 OutputBaseFilename=CindrixRecon-Setup
 Compression=lzma2

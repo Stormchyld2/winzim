@@ -29,6 +29,26 @@ def get(url):
         return e.code, "", e.read()
 
 
+def test_preview_crawler_layout():
+    """Crawler ZIMs: start page is the redirect W/mainPage -> C/<host>/index; the preview must follow it."""
+    import zimwriter
+    tmp = tempfile.mkdtemp()
+    out = os.path.join(tmp, "w.zim")
+    w = zimwriter.ZimWriter(out, {"Title": "Crawler layout", "Language": "eng", "Creator": "t", "Publisher": "t",
+                                  "Name": "t", "Description": "d", "Date": "2026-01-01"})
+    w.add_entry("example.com/index", "Home", "text/html", b"<h1>Crawled home</h1>")
+    w.add_redirect("mainPage", "", "example.com/index", ns="W", target_ns="C")
+    w._main = ("W", "mainPage")
+    w.close()
+    pv = PreviewServer(out)
+    st, ct, body = get(pv.url)
+    assert st == 200 and b"Crawled home" in body, (st, body)
+    st, ct, body = get(pv.url + "mainPage")
+    assert st == 200 and b"Crawled home" in body, (st, body)
+    pv.stop()
+    print("preview of crawler-style ZIM ok")
+
+
 def test_preview():
     tmp = tempfile.mkdtemp()
     site = os.path.join(tmp, "site")
@@ -112,6 +132,7 @@ def test_settings():
 
 if __name__ == "__main__":
     test_preview()
+    test_preview_crawler_layout()
     test_sitemap()
     test_settings()
     print("ALL FEATURE TESTS PASSED")

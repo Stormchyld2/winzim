@@ -153,6 +153,16 @@ class ZimReader:
             return None
         return self.dirent(self.main)["url"]
 
+    def main_target(self):
+        """URL of the page the main-page entry finally points at (following redirects), or None."""
+        if self.main == NO_MAIN:
+            return None
+        e, depth = self.dirent(self.main), 0
+        while e["redirect"] is not None and depth < 10:
+            e = self.dirent(e["redirect"])
+            depth += 1
+        return e["url"]
+
     def metadata(self, key):
         _, e = self.resolve("M", key)
         return self.blob(e).decode("utf-8", "replace") if e and e["redirect"] is None else None
@@ -181,16 +191,19 @@ def make_handler(zim):
         def do_GET(self):
             path = unquote(self.path.split("?", 1)[0].split("#", 1)[0]).lstrip("/")
             if path == "":
-                mp = zim.main_path()
-                if mp is None:
+                target = zim.main_target()
+                if target is None:
                     return self._send(404, b"This ZIM has no main page.", "text/plain")
-                self.send_response(302)
-                self.send_header("Location", "/" + quote(mp))
-                self.end_headers()
-                return
+                return self._redirect("/" + quote(target))
             _, e = zim.resolve(zim.content_ns, path)
             if e is None and zim.content_ns == "C":
                 _, e = zim.resolve("A", path)
+            if e is None:     # crawler ZIMs keep their start page as a redirect in the "W" area (W/mainPage)
+                w_idx, w = zim.find("W", path)
+                if w is not None:
+                    _, final = zim.resolve("W", path)
+                    if final is not None and final["redirect"] is None:
+                        return self._redirect("/" + quote(final["url"]))
             if e is None:
                 return self._send(404, b"Not in this ZIM file.", "text/plain")
             try:
@@ -201,6 +214,11 @@ def make_handler(zim):
             if mime.startswith("text/") and "charset" not in mime:
                 mime += "; charset=utf-8"
             self._send(200, data, mime)
+
+        def _redirect(self, where):
+            self.send_response(302)
+            self.send_header("Location", where)
+            self.end_headers()
 
         def _send(self, code, data, mime):
             self.send_response(code)

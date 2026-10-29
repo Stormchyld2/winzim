@@ -11,20 +11,22 @@ import shutil
 
 import settings as appsettings
 
-ABOUT = ("DRAFT starter list. Every entry is unverified: web addresses and rules change, and nothing here has been checked. "
-         "An entry can only be used after you set approved to true (the Approve box in the program). Edit freely.")
+REVIEWED = "reviewed 2026-10-29, not live-checked"
+ABOUT = ("Starter list, reviewed 2026-10-29. The sites and books are real, but web addresses and copying rules change and the "
+         "addresses were NOT opened live, so look at a site before you collect it. Entries you add or edit start unapproved "
+         "(the Approve box in the program). Edit freely.")
 
 SITES = [
-    ("Ready.gov (US emergency preparedness)", "https://www.ready.gov/", "whole", "lite", "Official preparedness guides from FEMA."),
+    ("Ready.gov (US emergency preparedness)", "https://www.ready.gov/", "whole", "lite", "Official preparedness guides from FEMA. US government material is generally free to copy; some photos may not be."),
     ("CDC emergency preparedness", "https://emergency.cdc.gov/", "whole", "lite", "Health and safety guidance in disasters."),
     ("Red Cross: how to prepare", "https://www.redcross.org/get-help/how-to-prepare-for-emergencies.html", "section", "lite",
      "Checklists and guides; the Red Cross site is large, so this takes only the preparedness section."),
-    ("Hesperian Health Guides", "https://hesperian.org/", "section", "lite", "Community health guides. Their books are also under Books below."),
+    ("Hesperian Health Guides", "https://hesperian.org/", "section", "lite", "Community health guides. Hesperian publishes copyright terms per book (see its Copyright Information pages); check them before sharing copies."),
     ("National Weather Service safety", "https://www.weather.gov/safety/", "section", "lite", "Storm, flood, heat and cold safety pages."),
     ("USDA food safety", "https://www.fsis.usda.gov/food-safety", "section", "lite", "Safe storage, cooking and power-outage food guidance."),
-    ("MedlinePlus health topics", "https://medlineplus.gov/", "whole", "text", "US National Library of Medicine. Large: try 'No pictures' first."),
-    ("Appropedia (sustainability how-tos)", "https://www.appropedia.org/", "whole", "text", "Water, power, shelter and food projects. Large."),
-    ("Low-tech Magazine", "https://solar.lowtechmagazine.com/", "whole", "lite", "Low-energy technology articles."),
+    ("MedlinePlus health topics", "https://medlineplus.gov/", "whole", "text", "US National Library of Medicine; its copyright page says most content is free to reuse, some pictures are not. Large: try 'No pictures' first."),
+    ("Appropedia (sustainability how-tos)", "https://www.appropedia.org/", "whole", "text", "Water, power, shelter and food projects. Content is Creative Commons share-alike (CC BY-SA), so keep the credit. Large."),
+    ("Low-tech Magazine", "https://solar.lowtechmagazine.com/", "whole", "lite", "Low-energy technology articles. Copying terms not confirmed: check the site's about page."),
 ]
 BOOKS = [
     ("Where There Is No Doctor", "where there is no doctor werner", "Village health care handbook."),
@@ -44,10 +46,10 @@ def default_entries():
     out = []
     for i, (name, url, preset, detail, note) in enumerate(SITES, 1):
         out.append({"id": f"site{i}", "kind": "site", "name": name, "url": url, "preset": preset, "detail": detail, "note": note,
-                    "status": "unverified", "approved": False})
+                    "status": REVIEWED, "approved": True})
     for i, (name, query, note) in enumerate(BOOKS, 1):
-        out.append({"id": f"book{i}", "kind": "book", "name": name, "query": query, "note": note, "status": "unverified",
-                    "approved": False})
+        out.append({"id": f"book{i}", "kind": "book", "name": name, "query": query, "note": note, "status": REVIEWED,
+                    "approved": True})
     return out
 
 

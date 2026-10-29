@@ -107,7 +107,8 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
 
 - **Queue tab:** *Add to queue* (Sites tab, Books tab, Books to ZIM, ZIM library) puts a job in a list that runs one after another once you click *Start queue*. Jobs are saved, so closing the program does not lose them; one that was running when the program closed shows as *Interrupted* and can be retried. You can move jobs up or down, remove, retry, cancel the current one, or pause after it. Job types: site to ZIM, books from a library site, find one book, books to ZIM, and books out of a ZIM.
 - **Drive report** (Books tab): pick a folder or drive and get `drive_report.html` and `drive_report.csv` in it. It lists your ZIMs and books, checks every ZIM's checksum, flags book files that are really web pages or cut short, books listed in `library_manifest.csv` that are gone, duplicates, free space, and recent failed queue jobs.
-- **Starter library** (Sites and Books tabs): a draft list of preparedness sites and books to look up. **Nothing in it is checked.** Each entry stays unusable until you approve it (the box in the first column) after looking at it yourself. It is a plain file, `starter_library.json`, beside your settings; edit it freely. *Use* only fills in the Sites or Books tab; it never starts anything.
+- **Starter library** (Sites and Books tabs): a reviewed list of preparedness sites and books to look up. It comes pre-approved, but **the web addresses were not opened live**, so look at a site before you collect it; untick the box in the first column to switch an entry off. Entries you add or edit start unapproved. It is a plain file, `starter_library.json`, beside your settings; edit it freely. *Use* only fills in the Sites or Books tab; it never starts anything.
+- **Helper programs, one button each:** Settings > Books to ZIM has an *Install it for me* button for DjVuLibre, 7-Zip and Calibre. It downloads the official installer from the project's own site (needs internet, once) and runs it. DjVuLibre and 7-Zip go into the program's own folder with no administrator rights; Calibre is large (about 200 MB) and Windows asks permission. Nothing is bundled or signed. *Get it* opens the project's page instead.
 - **Resume and update (built-in engine):** pages are saved in a cache as they are fetched. *Update* (the default) asks the site what changed and re-downloads only that; an interrupted run carries on where it stopped. *Resume* trusts saved pages without asking (fastest). Change it, see its size, or clear it under Settings > Sites. Saved pages take about as much disk space as the site. The Zimit engine cannot do this; it always starts over.
 
 ## Getting Cindrix Recon
@@ -142,6 +143,7 @@ Dark / Light switch (top right, remembered).
 |---|---|
 | `app.py` | The window and the Sites tab |
 | `bookui.py`, `books.py` | Books tab window; book finding, link testing, catalog lookup, downloading |
+| `toolinstall.py` | Install DjVuLibre / 7-Zip / Calibre from Settings |
 | `jobqueue.py`, `queueui.py`, `drivereport.py`, `starterlib.py`, `starterui.py`, `crawlcache.py` | Queue, drive report, starter library, saved pages |
 | `settingsui.py`, `prefs.py`, `jobs.py`, `zimlibrary.py` | Settings tab, program settings, the download queue, taking books out of a ZIM |
 | `bookzim.py`, `bookread.py`, `flame.py` | Books -> ZIM: catalog website builder, e-book converters for the in-ZIM reader, the flame logo shape |
@@ -169,5 +171,5 @@ Run from the repo root (they also run in the GitHub build):
 - `python tests/test_books.py`: site book finder, OPDS, link testing, PDF page counts, downloads, manifest, catalog lookup and ranking, using a fake book site and fake catalogs on localhost.
 - `python tests/test_bookzim.py`: the books ZIM, every reader format, filters data and links.
 - `python tests/test_zimlibrary.py`, `python tests/test_settings_logic.py`: taking books out of a ZIM (parallel, queued), the Settings tab.
-- `python tests/test_cache.py`, `python tests/test_drivereport.py`, `python tests/test_jobqueue.py`, `python tests/test_starterlib.py`: resume/update, the drive report, the queue, the starter list.
+- `python tests/test_cache.py`, `python tests/test_drivereport.py`, `python tests/test_jobqueue.py`, `python tests/test_starterlib.py`, `python tests/test_toolinstall.py`: resume/update, the drive report, the queue, the starter list, the helper installer.
 - `python tests/test_app_logic.py`, `python tests/test_bookui_logic.py`: window logic using a stub tkinter (draws no real window).

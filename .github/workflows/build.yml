@@ -30,6 +30,7 @@ jobs:
           python tests/test_drivereport.py
           python tests/test_jobqueue.py
           python tests/test_starterlib.py
+          python tests/test_toolinstall.py
           python tests/test_app_logic.py
           python tests/test_bookui_logic.py
       - name: Build exe

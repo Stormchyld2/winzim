@@ -490,6 +490,10 @@ def find_tool(key):
     chosen = prefs.get(pref_key)
     if chosen:
         return chosen if os.path.isfile(chosen) else None
+    import toolinstall
+    own = toolinstall.installed_path(key)       # the copy installed from inside the program
+    if own:
+        return own
     for n in names:
         p = shutil.which(n)
         if p:

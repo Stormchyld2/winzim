@@ -17,16 +17,16 @@ try:
     ents = starterlib.load(p)
     check("draft file created", os.path.exists(p) and len(ents) >= 15)
     data = json.load(open(p, encoding="utf-8"))
-    check("file says it is an unchecked draft", "unverified" in data["about"] and data["version"] == 1)
-    check("every entry starts unverified and unapproved", all(not e["approved"] and e["status"] == "unverified" for e in ents))
-    check("nothing is usable until approved", not any(starterlib.usable(e) for e in ents))
+    check("file says addresses were not live-checked", "NOT opened live" in data["about"] and data["version"] == 1)
+    check("shipped entries are reviewed and approved, none claim live checking", all(e["approved"] and "not live-checked" in e["status"] for e in ents))
+    check("shipped entries are usable", all(starterlib.usable(e) for e in ents))
     check("entries are valid", all(starterlib.problem(e) == "" for e in ents), [e["name"] for e in ents if starterlib.problem(e)])
     check("ids are unique", len({e["id"] for e in ents}) == len(ents))
     check("no duplicate addresses", len({e["url"] for e in ents if e["kind"] == "site"}) == sum(1 for e in ents if e["kind"] == "site"))
     check("site entries are https", all(e["url"].startswith("https://") for e in ents if e["kind"] == "site"))
-    ents[0]["approved"] = True; starterlib.save(ents, p)
+    ents[1]["approved"] = False; starterlib.save(ents, p)
     again = starterlib.load(p)
-    check("approval is kept", again[0]["approved"] and starterlib.usable(again[0]) and not starterlib.usable(again[1]))
+    check("un-approval is kept", starterlib.usable(again[0]) and not starterlib.usable(again[1]))
     bad = dict(again[0], url="not a url")
     check("bad address refused", starterlib.problem(bad) != "" and not starterlib.usable(bad))
     check("book without query refused", starterlib.problem({"name": "x", "kind": "book", "query": " "}) != "")
@@ -62,7 +62,7 @@ try:
     tkinter.messagebox.showinfo = lambda *x, **k: shown.append(x)
     d = starterui.StarterDialog.__new__(starterui.StarterDialog)
     d.app, d.path = a, p
-    d.entries = starterlib.default_entries(); d.tree = stubtk.W(); d.tree.selection = lambda: [d.entries[0]["id"]]
+    d.entries = starterlib.default_entries(); d.entries[0]["approved"] = False; d.tree = stubtk.W(); d.tree.selection = lambda: [d.entries[0]["id"]]
     d.destroy = lambda: None; d.render = lambda: None
     used = []; a.use_starter = lambda e: used.append(e)
     d.use()

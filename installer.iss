@@ -1,7 +1,7 @@
 ; NOT USED YET - the GitHub build makes only CindrixRecon.exe. Kept for when we package an installer later.
 [Setup]
 AppName=Cindrix Recon
-AppVersion=1.6.0
+AppVersion=1.7.0
 AppPublisher=Cindrix
 DefaultDirName={autopf}\Cindrix Recon
 DefaultGroupName=Cindrix Recon

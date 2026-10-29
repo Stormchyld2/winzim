@@ -238,6 +238,7 @@ class SettingsTab(ttk.Frame):
         self._head(f, 4, "Helper programs (free, optional)")
         self._note(f, 5, "These let the ZIM read more formats. Leave a box empty to look for the program automatically.")
         self.tool_status = {}
+        self.tool_btn = {}
         for i, (key, pref, what, url) in enumerate((("ddjvu", "tool_ddjvu", "DjVuLibre  (DJVU books)", "https://djvu.sourceforge.net"),
                                                    ("7z", "tool_7z", "7-Zip  (comics in .cbr)", "https://www.7-zip.org"),
                                                    ("calibre", "tool_calibre", "Calibre  (LIT books)", "https://calibre-ebook.com"))):
@@ -249,6 +250,46 @@ class SettingsTab(ttk.Frame):
             line.grid(row=base + 1, column=1, columnspan=2, sticky="w", padx=12)
             ttk.Label(line, textvariable=st, style="Counts.TLabel").pack(side="left")
             ttk.Button(line, text="Get it", command=lambda u=url: webbrowser.open(u)).pack(side="left", padx=8)
+            btn = ttk.Button(line, text="Install it for me", command=lambda k=key: self.install_tool(k))
+            btn.pack(side="left")
+            self.tool_btn[key] = btn
+
+    def install_tool(self, key):
+        import threading
+        import toolinstall
+        spec = toolinstall.SPECS[key]
+        msg = (f"Download the official {spec['name']} installer ({spec['size']}) from the project's own site and install it?\n\n"
+               f"{spec['name']} is free software and is installed as a separate program.")
+        if spec.get("note"):
+            msg += "\n\n" + spec["note"]
+        if not messagebox.askyesno(NAME, msg):
+            return
+        name = spec["name"]
+        self.tool_status[key].set(f"Downloading {name}...")
+        self.tool_btn[key].state(["disabled"])
+        result = {}
+
+        def progress(d, t):
+            self.tool_status[key].set(f"Downloading {name}... {d * 100 // t}%" if t else f"Downloading {name}...")
+
+        def work():
+            try:
+                result["path"] = toolinstall.install(key, on_progress=progress)
+            except Exception as e:
+                result["err"] = str(e)
+
+        def poll():
+            if not result:
+                self.after(300, poll)
+                return
+            self.tool_btn[key].state(["!disabled"])
+            self.refresh_tools()
+            if "err" in result:
+                messagebox.showwarning(NAME, result["err"])
+            else:
+                messagebox.showinfo(NAME, f"{name} is installed.")
+        threading.Thread(target=work, daemon=True).start()
+        self.after(300, poll)
 
     def refresh_tools(self):
         for key, st in self.tool_status.items():

@@ -1,7 +1,7 @@
 """Tests for the Zimit (Docker) engine wiring.
 
 Uses a *fake* `docker` executable that imitates Zimit's output, so this checks
-WinZim's orchestration (command line, progress parsing, output handling,
+Cindrix Recon's orchestration (command line, progress parsing, output handling,
 cancel, errors) - not Zimit itself. POSIX only for the fake-docker part.
 
 Run from the repo root:  python tests/test_zimit_engine.py

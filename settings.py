@@ -5,10 +5,17 @@ import os
 
 def settings_path():
     base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
-    return os.path.join(base, "WinZim", "settings.json")
+    return os.path.join(base, "CindrixRecon", "settings.json")
+
+
+def old_settings_path():
+    base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "WinZim", "settings.json")   # the app's earlier name
 
 
 def load(path=None):
+    if path is None and not os.path.exists(settings_path()) and os.path.exists(old_settings_path()):
+        path = old_settings_path()    # carry settings over from the old name
     try:
         with open(path or settings_path(), "r", encoding="utf-8") as f:
             data = json.load(f)

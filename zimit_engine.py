@@ -173,8 +173,8 @@ def run_zimit(url, out_path, o, on_event, cancel):
     folder = os.path.dirname(os.path.abspath(out_path))
     name = os.path.splitext(os.path.basename(out_path))[0]
     stamp = int(time.time())
-    container = f"winzim-{stamp}"
-    work = os.path.join(folder, f".winzim_work_{stamp}")
+    container = f"recon-{stamp}"
+    work = os.path.join(folder, f".recon_work_{stamp}")
     os.makedirs(work, exist_ok=True)
     tail, stats = [], {"crawled": 0, "failed": 0, "limit": None}
 

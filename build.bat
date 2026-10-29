@@ -1,9 +1,9 @@
 @echo off
-REM Builds dist\WinZim.exe - a single file with Python bundled inside.
+REM Builds dist\CindrixRecon.exe - a single file with Python bundled inside.
 REM You only need Python on THIS machine to build; the exe itself needs nothing.
 REM (Prefer not to install Python? Use the GitHub Actions build instead - see README.)
 python -m pip install --upgrade pyinstaller -r requirements.txt
-python -m PyInstaller --onefile --windowed --name WinZim app.py
+python -m PyInstaller --onefile --windowed --name CindrixRecon app.py
 echo.
-echo Done. Your app is at dist\WinZim.exe
+echo Done. Your app is at dist\CindrixRecon.exe
 pause

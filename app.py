@@ -1,4 +1,4 @@
-"""WinZim - turn any website into a ZIM file.
+"""Cindrix Recon - collect websites (as ZIM files) and books before you need them.
 
 Engines:
   * Zimit (Docker Desktop)  - the official openZIM crawler, real browser, handles JavaScript sites.
@@ -16,12 +16,13 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
 import settings as appsettings
+from bookui import BookTab
 from crawler import Options, convert
 from preview import find_kiwix, open_in_kiwix, preview_in_browser
 from sitecheck import MB_PER_PAGE, check_site, estimate_size_text, whole_site_limits
 from zimit_engine import docker_status, run_zimit
 
-APP_NAME = "WinZim"
+APP_NAME = "Cindrix Recon"
 
 # ---------------------------------------------------------------- themes
 DARK = dict(bg="#131814", panel="#1a211c", field="#0f1411", border="#2d3d33", btnborder="#415548",
@@ -93,7 +94,7 @@ def default_filename(url):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} - Website to ZIM")
+        self.title(f"{APP_NAME} - site and book collection")
         self.geometry("880x800")
         self.minsize(800, 680)
         self.q = queue.Queue()
@@ -111,8 +112,13 @@ class App(tk.Tk):
         self.banner.pack(fill="x")
         self.banner.bind("<Configure>", lambda _e: self.draw_banner())
 
+        self.main_nb = ttk.Notebook(self, style="Main.TNotebook")
+        self.main_nb.pack(fill="both", expand=True)
+        zt = ttk.Frame(self.main_nb)
+        self.main_nb.add(zt, text="Sites")
+
         pad = {"padx": 10, "pady": 4}
-        top = ttk.Frame(self)
+        top = ttk.Frame(zt)
         top.pack(fill="x", **pad)
         top.columnconfigure(1, weight=1)
 
@@ -147,7 +153,7 @@ class App(tk.Tk):
         ttk.Entry(top, textvariable=self.fname).grid(row=2, column=1, sticky="ew", pady=3, padx=(6, 0))
         ttk.Label(top, text="blank = automatic", style="Muted.TLabel").grid(row=2, column=2, padx=(6, 0))
 
-        eng = ttk.LabelFrame(self, text="Engine")
+        eng = ttk.LabelFrame(zt, text="Engine")
         eng.pack(fill="x", **pad)
         self.engine = tk.StringVar(value="zimit")
         ttk.Radiobutton(eng, text="Zimit (needs Docker Desktop) - best quality, handles JavaScript sites",
@@ -168,7 +174,7 @@ class App(tk.Tk):
         self.max_file_mb = tk.StringVar(value="0")
         self.depth = tk.StringVar(value="0")
 
-        self.presetf = ttk.Frame(self)
+        self.presetf = ttk.Frame(zt)
         self.presetf.pack(fill="x", **pad)
         ttk.Label(self.presetf, text="What to save:").pack(side="left")
         self.preset = tk.StringVar(value=PRESET_NAMES[0])
@@ -193,10 +199,10 @@ class App(tk.Tk):
         self.detail.trace_add("write", lambda *_: self.refresh_estimate())
 
         self.est_msg = tk.StringVar(value="")
-        self.est_label = ttk.Label(self, textvariable=self.est_msg, style="Muted.TLabel")
+        self.est_label = ttk.Label(zt, textvariable=self.est_msg, style="Muted.TLabel")
         self.est_label.pack(anchor="w", padx=10)
 
-        opts = ttk.LabelFrame(self, text="Advanced options")  # shown by the Advanced button
+        opts = ttk.LabelFrame(zt, text="Advanced options")  # shown by the Advanced button
         self.opts_frame = opts
         r = ttk.Frame(opts)
         r.pack(fill="x", padx=8, pady=6)
@@ -238,7 +244,7 @@ class App(tk.Tk):
         ttk.Label(r, text="Skip-over-MB applies to the Built-in engine only. 0 = no limit.", style="Muted.TLabel"
                   ).grid(row=8, column=0, columnspan=8, sticky="w", pady=(4, 0))
 
-        bar = ttk.Frame(self)
+        bar = ttk.Frame(zt)
         bar.pack(fill="x", **pad)
         self.cancel_btn = ttk.Button(bar, text="Cancel", command=self.on_cancel, state="disabled",
                                      style="Danger.TButton")
@@ -252,12 +258,12 @@ class App(tk.Tk):
         self.status_label = ttk.Label(bar, textvariable=self.status, style="Amber.TLabel")
         self.status_label.pack(side="right")
 
-        self.progress = ttk.Progressbar(self, mode="indeterminate")
+        self.progress = ttk.Progressbar(zt, mode="indeterminate")
         self.progress.pack(fill="x", **pad)
         self.counts = tk.StringVar(value="")
-        ttk.Label(self, textvariable=self.counts, style="Counts.TLabel").pack(anchor="w", padx=10)
+        ttk.Label(zt, textvariable=self.counts, style="Counts.TLabel").pack(anchor="w", padx=10)
 
-        nb = ttk.Notebook(self)
+        nb = ttk.Notebook(zt)
         nb.pack(fill="both", expand=True, **pad)
         pages = ttk.Frame(nb)
         nb.add(pages, text="Pages")
@@ -276,8 +282,11 @@ class App(tk.Tk):
         self.log.pack(fill="both", expand=True)
 
         self.result = tk.StringVar(value="")
-        self.result_label = ttk.Label(self, textvariable=self.result, wraplength=840, style="Result.TLabel")
+        self.result_label = ttk.Label(zt, textvariable=self.result, wraplength=840, style="Result.TLabel")
         self.result_label.pack(anchor="w", padx=10, pady=(0, 8))
+
+        self.books = BookTab(self.main_nb, self, ICONS)
+        self.main_nb.add(self.books, text="Books")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(100, self.pump)
@@ -336,6 +345,15 @@ class App(tk.Tk):
         st.configure("TNotebook", background=p["bg"], bordercolor=p["border"], tabmargins=(0, 2, 0, 0))
         st.configure("TNotebook.Tab", background=p["bg"], foreground=p["muted"], padding=(16, 5),
                      bordercolor=p["border"])
+        st.configure("Main.TNotebook", background=p["bg"], bordercolor=p["border"], tabmargins=(8, 6, 0, 0))
+        st.configure("Main.TNotebook.Tab", background=p["bg"], foreground=p["muted"], padding=(26, 8),
+                     font=("Segoe UI", 10, "bold"), bordercolor=p["border"])
+        st.map("Main.TNotebook.Tab", foreground=[("selected", p["amber"])], background=[("selected", p["panel"])])
+        st.configure("Seg.TButton", background=p["field"], foreground=p["muted"], bordercolor=p["border"], padding=(16, 4))
+        st.map("Seg.TButton", background=[("active", p["hover"])])
+        st.configure("SegOn.TButton", background=p["sel"] if self.dark else "#f3e6c4", foreground=p["amber"],
+                     bordercolor=p["amber"], font=("Segoe UI", 10, "bold"), padding=(16, 4))
+        st.map("SegOn.TButton", background=[("active", p["sel"] if self.dark else "#f3e6c4")])
         st.map("TNotebook.Tab", foreground=[("selected", p["amber"])], background=[("selected", p["panel"])])
         st.configure("Treeview", background=p["panel"], fieldbackground=p["panel"], foreground=p["text"],
                      rowheight=22, bordercolor=p["border"])
@@ -365,6 +383,7 @@ class App(tk.Tk):
                 pass
         self.check_icon.configure(bg=p["bg"])
         self.set_icon(self.icon_level, self.icon_msg)
+        self.books.apply_theme(p)
         self.draw_banner()
         self.dark_titlebar(self.dark)
 
@@ -397,8 +416,8 @@ class App(tk.Tk):
         c.create_rectangle(0, 46, 120, 48, fill=p["amber"], width=0)
         c.create_polygon(28, 8, 38, 22, 36, 36, 28, 42, 20, 36, 18, 24, 23, 28, 23, 16, fill=p["amber"], outline="")
         c.create_polygon(28, 24, 32, 32, 28, 38, 24, 32, fill=p["flame2"], outline="")
-        c.create_text(50, 17, text="WinZim", anchor="w", fill=p["text"], font=("Segoe UI", 14, "bold"))
-        c.create_text(51, 35, text="Website to ZIM archiver", anchor="w", fill=p["muted"], font=("Segoe UI", 9))
+        c.create_text(50, 17, text="Cindrix Recon", anchor="w", fill=p["text"], font=("Segoe UI", 14, "bold"))
+        c.create_text(51, 35, text="Site and book collection", anchor="w", fill=p["muted"], font=("Segoe UI", 9))
         # theme switch (right side)
         pill_fill = "#1f2c23" if self.dark else "#e8e2d0"
         c.create_text(w - 16, 24, text="Dark" if self.dark else "Light", anchor="e", fill=p["amber"],
@@ -538,6 +557,7 @@ class App(tk.Tk):
         if s.get("detail") in DETAILS or s.get("detail") == CUSTOM_DETAIL:
             self.detail.set(s["detail"])
         self.dark = s.get("theme", "dark") != "light"
+        self.books.set_settings(s)
         if s.get("advanced") and not self.adv_open:
             self.toggle_adv()
 
@@ -552,6 +572,7 @@ class App(tk.Tk):
         }
         for n in FLAG_NAMES:
             data[n] = self.dv[n].get()
+        data.update(self.books.get_settings())
         appsettings.save(data)
 
     # ------------------------------------------------------ open the result
@@ -801,6 +822,10 @@ class App(tk.Tk):
                     self.on_error(val)
                 elif kind == "check":
                     self.on_check_result(*val)
+                elif kind == "book":
+                    self.books.on_event(val)
+                elif kind == "bookcheck":
+                    self.books.on_check_result(*val)
                 elif kind == "docker":
                     self.docker_state = val
                     self.docker_msg.set({
@@ -898,10 +923,11 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, text)
 
     def on_close(self):
-        if self.running:
-            if not messagebox.askyesno(APP_NAME, "A conversion is running. Cancel it and quit?"):
+        if self.running or self.books.running:
+            if not messagebox.askyesno(APP_NAME, "Something is still running. Cancel it and quit?"):
                 return
             self.cancel.set()
+            self.books.cancel.set()
         self.save_settings()
         self.destroy()
 

@@ -1,27 +1,27 @@
-; Inno Setup script: builds installer\WinZim-Setup.exe from dist\WinZim.exe
+; NOT USED YET - the GitHub build makes only CindrixRecon.exe. Kept for when we package an installer later.
 [Setup]
-AppName=WinZim
-AppVersion=1.2.0
-AppPublisher=WinZim
-DefaultDirName={autopf}\WinZim
-DefaultGroupName=WinZim
-UninstallDisplayIcon={app}\WinZim.exe
+AppName=Cindrix Recon
+AppVersion=1.3.0
+AppPublisher=Cindrix
+DefaultDirName={autopf}\Cindrix Recon
+DefaultGroupName=Cindrix Recon
+UninstallDisplayIcon={app}\CindrixRecon.exe
 OutputDir=installer
-OutputBaseFilename=WinZim-Setup
+OutputBaseFilename=CindrixRecon-Setup
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
 WizardStyle=modern
 
 [Files]
-Source: "dist\WinZim.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\CindrixRecon.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\WinZim"; Filename: "{app}\WinZim.exe"
-Name: "{autodesktop}\WinZim"; Filename: "{app}\WinZim.exe"; Tasks: desktopicon
+Name: "{group}\Cindrix Recon"; Filename: "{app}\CindrixRecon.exe"
+Name: "{autodesktop}\Cindrix Recon"; Filename: "{app}\CindrixRecon.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Run]
-Filename: "{app}\WinZim.exe"; Description: "Start WinZim"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\CindrixRecon.exe"; Description: "Start Cindrix Recon"; Flags: nowait postinstall skipifsilent

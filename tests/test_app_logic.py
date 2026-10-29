@@ -10,7 +10,7 @@ class W:
     def __init__(self, *a, **k):
         self.opts = dict(k)
     def __getattr__(self, n):
-        if n == "get_children":
+        if n in ("get_children", "winfo_children", "selection"):
             return lambda *a, **k: []
         return lambda *a, **k: None
     def __setitem__(self, k, v): self.opts[k] = v
@@ -36,6 +36,8 @@ class Tk(W):
 asked = []
 tk = types.ModuleType("tkinter"); ttk = types.ModuleType("tkinter.ttk")
 tk.Tk, tk.Label, tk.StringVar, tk.BooleanVar, tk.Canvas = Tk, W, Var, Var, W
+tk.Frame = tk.Toplevel = W
+tk.IntVar = Var
 for n in ("Frame","LabelFrame","Entry","Button","Radiobutton","Checkbutton","Spinbox","Progressbar","Combobox","Notebook","Treeview","Scrollbar","Label","Separator","Style"):
     setattr(ttk, n, W)
 class Style(W):

@@ -1,4 +1,4 @@
-name: Build WinZim
+name: Build CindrixRecon
 
 on:
   push:
@@ -22,18 +22,12 @@ jobs:
           python tests/test_sitecheck.py
           python tests/test_features.py
           python tests/test_detail.py
+          python tests/test_books.py
           python tests/test_app_logic.py
+          python tests/test_bookui_logic.py
       - name: Build exe
-        run: python -m PyInstaller --onefile --windowed --name WinZim app.py
-      - name: Build installer
-        run: |
-          choco install innosetup -y --no-progress
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+        run: python -m PyInstaller --onefile --windowed --name CindrixRecon app.py
       - uses: actions/upload-artifact@v4
         with:
-          name: WinZim-exe
-          path: dist/WinZim.exe
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WinZim-installer
-          path: installer/WinZim-Setup.exe
+          name: CindrixRecon-exe
+          path: dist/CindrixRecon.exe

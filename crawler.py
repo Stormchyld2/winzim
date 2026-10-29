@@ -26,7 +26,7 @@ from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
 from zimwriter import ZimWriter
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WinZim/1.0"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CindrixRecon/1.2"
 MAX_RESOURCE = 50 * 1024 * 1024
 HTML_MIMES = ("text/html", "application/xhtml+xml")
 REMOVE = object()   # sentinel: drop this reference from the saved page
@@ -352,7 +352,7 @@ class Crawler:
         self.start = normalize(start_url)
         self.on_event = on_event or (lambda e: None)
         self.cancel = threading.Event()
-        self.workdir = tempfile.mkdtemp(prefix="winzim_")
+        self.workdir = tempfile.mkdtemp(prefix="recon_")
         self.records = {}   # final url -> dict(file, mime, size)
         self.alias = {}     # requested url -> final url
         self.failed = 0
@@ -619,10 +619,10 @@ class Crawler:
             "Description": f"Offline copy of {host}",
             "Language": self.o.language,
             "Creator": host,
-            "Publisher": "WinZim",
+            "Publisher": "Cindrix Recon",
             "Date": datetime.date.today().isoformat(),
             "Name": re.sub(r"[^a-z0-9]+", "_", host.lower()).strip("_"),
-            "Scraper": "WinZim 1.0",
+            "Scraper": "Cindrix Recon 1.2",
         })
         writer.close()
         os.replace(part, out_path)

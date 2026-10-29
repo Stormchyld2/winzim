@@ -1,5 +1,5 @@
 # Only needed when building the exe. Nothing here is needed on the PC that runs CindrixRecon.exe.
-# zstandard lets "Preview in browser" read ZIM files made by Zimit (which uses Zstandard compression).
+# zstandard lets "Preview in browser" read ZIM files made by the Cindrix Recon engine (which uses Zstandard compression).
 zstandard
 # Pillow lets the Built-in engine shrink pictures for the "Lite" detail level.
 Pillow

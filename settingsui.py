@@ -139,7 +139,7 @@ class SettingsTab(ttk.Frame):
         self._check(f, 3, "remember", "Remember my choices between runs (folders, detail level, formats...)")
         self._check(f, 4, "confirm_all", "Ask before 'Download all' and 'Download selected' for several books")
         self._check(f, 5, "open_when_done", "Open the folder when a download or a ZIM build finishes")
-        self._check(f, 6, "check_docker", "Look for Docker Desktop when the program starts (needed for the Zimit engine)")
+        self._check(f, 6, "check_docker", "Look for Docker Desktop when the program starts (needed for the Cindrix Recon engine)")
         self._head(f, 7, "Settings file")
         self._note(f, 8, settings_where())
         row = ttk.Frame(f)
@@ -202,14 +202,14 @@ class SettingsTab(ttk.Frame):
         self._note(f, 6, "Update: run the same site again and only changed pages are downloaded again; an interrupted run "
                          "carries on where it stopped. Resume: trust the saved pages without asking the site (fastest, may be out "
                          "of date). Off: always download everything. Saved pages take disk space, about as much as the site itself. "
-                         "The Zimit engine cannot do this; it always starts over.")
+                         "The Cindrix Recon engine cannot do this; it always starts over.")
         row = ttk.Frame(f)
         row.grid(row=7, column=0, columnspan=3, sticky="w", **PAD)
         self.cache_info = tk.StringVar()
         ttk.Button(row, text="Open folder", command=lambda: _open_path(crawlcache.default_root())).pack(side="left")
         ttk.Button(row, text="Clear saved pages", command=self.clear_cache).pack(side="left", padx=8)
         ttk.Label(row, textvariable=self.cache_info).pack(side="left", padx=8)
-        self._head(f, 8, "Zimit engine (Docker)")
+        self._head(f, 8, "Cindrix Recon engine (Docker)")
         ttk.Label(f, textvariable=self.app.docker_msg).grid(row=9, column=0, columnspan=3, sticky="w", **PAD)
         ttk.Button(f, text="Check again", command=lambda: threading.Thread(target=self.app.check_docker, daemon=True).start()).grid(
             row=10, column=0, sticky="w", **PAD)

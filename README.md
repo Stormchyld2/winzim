@@ -9,10 +9,10 @@ Two tabs:
 - **Books**: find books on a library site, or look a book up by title/author and get the best place to download it.
 
 `CindrixRecon.exe` has Python bundled inside, so the **only** thing you may need to install is Docker Desktop
-(and only for the Zimit engine on the Sites tab).
+(and only for the Cindrix Recon engine on the Sites tab).
 
 ## Sites tab (website -> ZIM)
-- **Zimit engine (default)**: runs the official openZIM Zimit crawler through Docker Desktop. Real browser,
+- **Cindrix Recon engine (default)**: runs a real-browser crawler (the open-source openZIM Zimit, used under its own licence) through Docker Desktop. Real browser,
   handles JavaScript-heavy sites.
 - **Built-in engine**: simple pure-Python crawler, no Docker needed. Best for ordinary static sites.
 
@@ -41,7 +41,7 @@ Two tabs:
 
   The sizes are rough guesses from typical sites, not promises. **Advanced** has a checkbox for each thing that
   can be left out, plus **skip files over X MB** and **depth** (clicks from the start page). Changing a box by hand
-  switches the dropdown to *Custom*. With **Zimit**, pictures/media/fonts/documents and depth are passed to Zimit
+  switches the dropdown to *Custom*. With the **Cindrix Recon engine**, pictures/media/fonts/documents and depth are passed to the crawler
   as block rules; shrinking pictures, removing scripts and the per-file size cap only work with the **Built-in**
   engine (the app tells you, and offers to switch for Lite).
 - **Presets.** Whole site, this section only, just this page, quick test (10 pages), or no limits. **Whole site
@@ -109,7 +109,7 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
 - **Drive report** (Books tab): pick a folder or drive and get `drive_report.html` and `drive_report.csv` in it. It lists your ZIMs and books, checks every ZIM's checksum, flags book files that are really web pages or cut short, books listed in `library_manifest.csv` that are gone, duplicates, free space, and recent failed queue jobs.
 - **Starter library** (Sites and Books tabs): a reviewed list of preparedness sites and books to look up. It comes pre-approved, but **the web addresses were not opened live**, so look at a site before you collect it; untick the box in the first column to switch an entry off. Entries you add or edit start unapproved. It is a plain file, `starter_library.json`, beside your settings; edit it freely. *Use* only fills in the Sites or Books tab; it never starts anything.
 - **Helper programs, one button each:** Settings > Books to ZIM has an *Install it for me* button for DjVuLibre, 7-Zip and Calibre. It downloads the official installer from the project's own site (needs internet, once) and runs it. DjVuLibre and 7-Zip go into the program's own folder with no administrator rights; Calibre is large (about 200 MB) and Windows asks permission. Nothing is bundled or signed. *Get it* opens the project's page instead.
-- **Resume and update (built-in engine):** pages are saved in a cache as they are fetched. *Update* (the default) asks the site what changed and re-downloads only that; an interrupted run carries on where it stopped. *Resume* trusts saved pages without asking (fastest). Change it, see its size, or clear it under Settings > Sites. Saved pages take about as much disk space as the site. The Zimit engine cannot do this; it always starts over.
+- **Resume and update (built-in engine):** pages are saved in a cache as they are fetched. *Update* (the default) asks the site what changed and re-downloads only that; an interrupted run carries on where it stopped. *Resume* trusts saved pages without asking (fastest). Change it, see its size, or clear it under Settings > Sites. Saved pages take about as much disk space as the site. The Cindrix Recon engine cannot do this; it always starts over.
 
 ## Getting Cindrix Recon
 **No Python needed:** on GitHub open the **Actions** tab, run **Build CindrixRecon** (or open the latest run) and
@@ -126,16 +126,16 @@ The app was renamed from WinZim; your old settings are carried over automaticall
 Dark / Light switch (top right, remembered).
 
 ## Notes and limitations
-- The first Zimit run downloads the Zimit image (about 1 GB). If Docker asks for permission to share your drive or
+- The first Cindrix Recon engine run downloads the crawler image (about 1 GB). If Docker asks for permission to share your drive or
   folder, allow it.
 - **Built-in engine:** no browser, so content that appears only after JavaScript runs may be missing.
 - **Login-protected sites are not supported** by either tab. Only archive sites you're allowed to copy, and keep
   workers modest.
 - **Lite** needs the Pillow module (bundled in the GitHub build). If missing, pictures are saved at full size and the
   app says so.
-- The Zimit options for skipping file types and depth use Browsertrix settings; if your Zimit version rejects them,
+- The Cindrix Recon engine options for skipping file types and depth use Browsertrix settings; if your crawler version rejects them,
   the app retries without them and warns you that nothing was filtered.
-- **Preview in browser** reads Zimit's ZIM files only if the optional `zstandard` module was bundled (the GitHub build
+- **Preview in browser** reads ZIM files from the Cindrix Recon engine only if the optional `zstandard` module was bundled (the GitHub build
   does this). Otherwise use **Open in Kiwix**.
 
 ## Project layout
@@ -147,7 +147,7 @@ Dark / Light switch (top right, remembered).
 | `jobqueue.py`, `queueui.py`, `drivereport.py`, `starterlib.py`, `starterui.py`, `crawlcache.py` | Queue, drive report, starter library, saved pages |
 | `settingsui.py`, `prefs.py`, `jobs.py`, `zimlibrary.py` | Settings tab, program settings, the download queue, taking books out of a ZIM |
 | `bookzim.py`, `bookread.py`, `flame.py` | Books -> ZIM: catalog website builder, e-book converters for the in-ZIM reader, the flame logo shape |
-| `zimit_engine.py` | Runs Zimit via Docker, parses its progress |
+| `zimit_engine.py` | Runs the Docker crawler, parses its progress |
 | `crawler.py`, `zimwriter.py` | Built-in crawler (detail levels, depth, picture shrinking), link rewriting, ZIM writer |
 | `sitecheck.py` | Green/amber/red pre-flight check and sitemap estimate |
 | `zimreader.py`, `preview.py` | ZIM reader, browser preview, Kiwix launcher |
@@ -164,7 +164,7 @@ is **not** written into ZIM files.
 ## Tests
 Run from the repo root (they also run in the GitHub build):
 - `python tests/test_local.py`: local site -> Built-in engine -> ZIM, validated by an independent reader (`tests/verify_zim.py`).
-- `python tests/test_zimit_engine.py`: Zimit command line, progress parsing, output handling, cancel, errors, using a *fake* `docker`.
+- `python tests/test_zimit_engine.py`: crawler command line, progress parsing, output handling, cancel, errors, using a *fake* `docker`.
 - `python tests/test_sitecheck.py`: login, 401, Cloudflare-style block, JavaScript shell, captcha, robots.txt cases.
 - `python tests/test_features.py`: preview server, sitemap estimate, settings.
 - `python tests/test_detail.py`: detail levels, skipped files, script removal, depth, limit tracking.

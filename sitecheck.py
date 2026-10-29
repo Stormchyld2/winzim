@@ -169,9 +169,9 @@ def analyze(start_url, status, final_url, headers, body, engine="zimit"):
     scripts = len(re.findall(r"(?i)<script\b", page))
     if status and status < 400 and len(text) < 300 and scripts >= 1 and not f:
         if engine == "zimit":
-            f.append(("ok", "Little text in the raw HTML (JavaScript site), but Zimit renders JavaScript."))
+            f.append(("ok", "Little text in the raw HTML (JavaScript site), but the Cindrix Recon engine renders JavaScript."))
         else:
-            f.append(("warn", "The page is almost empty without JavaScript. Use the Zimit engine for this site."))
+            f.append(("warn", "The page is almost empty without JavaScript. Use the Cindrix Recon engine for this site."))
     return f
 
 

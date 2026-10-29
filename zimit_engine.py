@@ -162,7 +162,7 @@ def run_zimit(url, out_path, o, on_event, cancel):
     state, docker = docker_status()
     if state == "missing":
         raise RuntimeError(
-            "Docker Desktop is required for the Zimit engine but wasn't found.\n\n"
+            "Docker Desktop is required for the Cindrix Recon engine but wasn't found.\n\n"
             f"Install it from {DOCKER_URL}, start it, then click Convert again.\n"
             "(Or switch the engine to 'Built-in' for simple sites.)")
     if state == "not_running":
@@ -211,15 +211,15 @@ def run_zimit(url, out_path, o, on_event, cancel):
             done.set()
 
     try:
-        rc = run([docker, "pull", IMAGE], "Getting Zimit (first run downloads about 1 GB)...")
+        rc = run([docker, "pull", IMAGE], "Getting the Cindrix Recon crawler (first run downloads about 1 GB)...")
         if cancel.is_set():
             raise RuntimeError("Cancelled")
         if rc != 0:
             have = subprocess.run([docker, "image", "inspect", IMAGE], capture_output=True, creationflags=NOWIN)
             if have.returncode != 0:
-                raise RuntimeError("Couldn't download the Zimit image. Check your internet connection and that "
+                raise RuntimeError("Couldn't download the crawler image. Check your internet connection and that "
                                    "Docker Desktop is running.\n\n" + "\n".join(tail[-4:]))
-            on_event({"type": "log", "text": "Using the previously downloaded Zimit image."})
+            on_event({"type": "log", "text": "Using the previously downloaded crawler image."})
 
         def list_zims():
             return [os.path.join(work, f) for f in os.listdir(work) if f.lower().endswith(".zim")]
@@ -227,24 +227,24 @@ def run_zimit(url, out_path, o, on_event, cancel):
         extras = bool(optional_flags(o))
         cmd = build_command(docker, container, work, url, name, o, extras=True)
         on_event({"type": "log", "text": "> " + " ".join(cmd)})
-        rc = run(cmd, "Crawling the site with Zimit...")
+        rc = run(cmd, "Crawling the site with Cindrix Recon...")
         if cancel.is_set():
             raise RuntimeError("Cancelled")
         if extras and rc != 0 and not list_zims():
             # Zimit may not accept the depth / block-rule flags; retry once without them.
-            on_event({"type": "log", "text": "Zimit didn't accept the detail/depth options - retrying without them. "
+            on_event({"type": "log", "text": "The crawler didn't accept the detail/depth options - retrying without them. "
                                              "Pictures and files will not be filtered this run."})
-            on_event({"type": "warn", "text": "Zimit ignored the detail level / depth options, so this run saved "
+            on_event({"type": "warn", "text": "The crawler ignored the detail level / depth options, so this run saved "
                                               "everything it normally would."})
             cmd = build_command(docker, container, work, url, name, o, extras=False)
             on_event({"type": "log", "text": "> " + " ".join(cmd)})
-            rc = run(cmd, "Crawling the site with Zimit...")
+            rc = run(cmd, "Crawling the site with Cindrix Recon...")
             if cancel.is_set():
                 raise RuntimeError("Cancelled")
 
         zims = list_zims()
         if not zims:
-            raise RuntimeError(f"Zimit ended (exit code {rc}) without creating a ZIM file.\n\n"
+            raise RuntimeError(f"The crawler ended (exit code {rc}) without creating a ZIM file.\n\n"
                                + "\n".join(tail[-6:]))
         newest = max(zims, key=os.path.getmtime)
         if os.path.exists(out_path):

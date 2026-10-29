@@ -453,7 +453,7 @@ class BookTab(ttk.Frame):
                 msg = "Cancelled."
             self.status.set(msg)
             if not e["books"]:
-                self.status.set("No books found. Try a page that lists the books, or the Zimit-style JavaScript sites may need a different approach.")
+                self.status.set("No books found. Try a page that lists the books, or JavaScript-heavy sites may need a different approach.")
         elif t == "catalog":
             self.status.set(f"Asked {e['name']}..." if e["ok"] else f"{e['name']} didn't answer.")
         elif t == "cards":

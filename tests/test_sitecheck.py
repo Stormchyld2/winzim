@@ -70,7 +70,7 @@ def main():
     expect(base, "/redir", "bad", contains="sign-in")
     expect(base, "/login", "bad", contains="login form")
     expect(base, "/js", "ok", engine="zimit")
-    expect(base, "/js", "warn", engine="builtin", contains="zimit")
+    expect(base, "/js", "warn", engine="builtin", contains="Cindrix Recon engine")
     expect(base, "/404x", "bad", contains="404")
     expect(base, "/captcha", "warn", contains="captcha")
     b, base_b = serve(robots="User-agent: *\nDisallow: /\n")

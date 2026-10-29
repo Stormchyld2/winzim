@@ -1,7 +1,7 @@
 """Cindrix Recon - collect websites (as ZIM files) and books before you need them.
 
 Engines:
-  * Zimit (Docker Desktop)  - the official openZIM crawler, real browser, handles JavaScript sites.
+  * Cindrix Recon engine (Docker Desktop)  - built on the openZIM Zimit crawler, real browser, handles JavaScript sites.
   * Built-in (no Docker)    - simple pure-Python crawler for ordinary static sites.
 """
 import datetime
@@ -169,7 +169,7 @@ class App(tk.Tk):
         eng = ttk.LabelFrame(zt, text="Engine")
         eng.pack(fill="x", **pad)
         self.engine = tk.StringVar(value="zimit")
-        ttk.Radiobutton(eng, text="Zimit (needs Docker Desktop) - best quality, handles JavaScript sites",
+        ttk.Radiobutton(eng, text="Cindrix Recon engine (needs Docker Desktop) - best quality, handles JavaScript sites",
                         variable=self.engine, value="zimit").pack(anchor="w", padx=8, pady=(4, 0))
         ttk.Radiobutton(eng, text="Built-in (no Docker) - simple websites only",
                         variable=self.engine, value="builtin").pack(anchor="w", padx=8)
@@ -228,7 +228,7 @@ class App(tk.Tk):
         ttk.Label(r, text="Limit time (min):").grid(row=0, column=6, sticky="w", padx=(14, 0))
         ttk.Entry(r, width=6, textvariable=self.max_minutes).grid(row=0, column=7, padx=6)
         ttk.Label(r, text="0 = no limit. More workers = faster, but heavy use may get you blocked by some sites "
-                          "(and Zimit uses more memory).", style="Muted.TLabel"
+                          "(and the Cindrix Recon engine uses more memory).", style="Muted.TLabel"
                   ).grid(row=1, column=0, columnspan=8, sticky="w", pady=(4, 0))
         ttk.Checkbutton(r, text="Only pages inside this URL's folder",
                         variable=self.path_scope).grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
@@ -825,7 +825,7 @@ class App(tk.Tk):
             ans = messagebox.askyesnocancel(
                 APP_NAME, "Shrinking pictures (Lite) only works with the Built-in engine.\n\n"
                           "Yes = switch to the Built-in engine (simple sites only)\n"
-                          "No = keep Zimit and save pictures at full size\nCancel = go back")
+                          "No = keep the Cindrix Recon engine and save pictures at full size\nCancel = go back")
             if ans is None:
                 return
             if ans:
@@ -866,11 +866,11 @@ class App(tk.Tk):
         self.run_notes = []
         if self.engine.get() == "zimit":
             if self.dv["shrink_images"].get():
-                self.run_notes.append("Zimit can't shrink pictures; they were saved at full size.")
+                self.run_notes.append("The Cindrix Recon engine can't shrink pictures; they were saved at full size.")
             if self.dv["no_scripts"].get():
-                self.run_notes.append("Zimit can't remove scripts; they were kept.")
+                self.run_notes.append("The Cindrix Recon engine can't remove scripts; they were kept.")
             if self.to_int(self.max_file_mb, 0):
-                self.run_notes.append("Zimit can't skip big files; the size cap was ignored.")
+                self.run_notes.append("The Cindrix Recon engine can't skip big files; the size cap was ignored.")
         opts = self.make_options()
         self.out_path = out
         self.cancel = threading.Event()
@@ -940,8 +940,8 @@ class App(tk.Tk):
                     self.docker_state = val
                     self.docker_msg.set({
                         "ready": "Docker Desktop: ready.",
-                        "not_running": "Docker Desktop: installed but not running - start it before using Zimit.",
-                        "missing": "Docker Desktop: not found - install it for Zimit, or use the Built-in engine.",
+                        "not_running": "Docker Desktop: installed but not running - start it before using the Cindrix Recon engine.",
+                        "missing": "Docker Desktop: not found - install it for the Cindrix Recon engine, or use the Built-in engine.",
                     }[val])
                     self.draw_banner()
         except queue.Empty:

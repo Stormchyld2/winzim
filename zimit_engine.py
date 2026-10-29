@@ -333,6 +333,23 @@ def discard_unfinished(out_path, url):
     shutil.rmtree(resume_dir(out_path, url), ignore_errors=True)
 
 
+def update_crawler(on_msg=None):
+    """Download the newest crawler now (the Settings button). Returns (ok, message)."""
+    state, docker = docker_status()
+    if state != "ready":
+        return False, "Docker Desktop is not running. Start it (the Start / wake Docker button) and try again."
+    say = on_msg or (lambda t: None)
+    say("Downloading the newest crawler (this can be large)...")
+    try:
+        r = subprocess.run([docker, "pull", IMAGE], capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL,
+                           creationflags=NOWIN)
+    except Exception as e:
+        return False, f"The download did not finish ({e.__class__.__name__})."
+    if r.returncode != 0:
+        return False, "The download failed: " + ((r.stderr or "").strip().splitlines() or ["unknown error"])[-1]
+    return True, "The crawler is up to date."
+
+
 def run_zimit(url, out_path, o, on_event, cancel, resume=True):
     """Run Zimit for `url` and place the finished ZIM at `out_path`.
 
@@ -423,7 +440,19 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
             done.set()
 
     try:
-        rc = run([docker, "pull", IMAGE], "Getting the Cindrix Recon crawler (first run downloads about 1 GB)...")
+        have = subprocess.run([docker, "image", "inspect", IMAGE], capture_output=True, stdin=subprocess.DEVNULL,
+                              creationflags=NOWIN)
+        try:
+            import prefs
+            update = bool(prefs.get("crawler_update"))
+        except Exception:
+            update = False
+        if have.returncode == 0 and not update:
+            on_event({"type": "log", "text": "Using the crawler already on this computer (no download)."})
+            rc = 0
+        else:
+            rc = run([docker, "pull", IMAGE], "Getting the Cindrix Recon crawler (first run downloads about 1 GB)..." if have.returncode != 0
+                     else "Updating the Cindrix Recon crawler...")
         if cancel.is_set():
             raise RuntimeError("Cancelled")
         if rc != 0:

@@ -214,6 +214,7 @@ class SettingsTab(ttk.Frame):
         ttk.Label(row, textvariable=self.cache_info).pack(side="left", padx=8)
         self._head(f, 8, "Cindrix Recon engine (Docker)")
         ttk.Label(f, textvariable=self.app.docker_msg).grid(row=9, column=0, columnspan=3, sticky="w", **PAD)
+        self._check(f, 12, "crawler_update", "Check for a newer crawler before every run (turn off to always use the copy already here: faster start, works without internet)")
         self._text(f, 10, "tool_docker", "docker.exe location (leave empty to find it automatically)", 48, browse=True)
         bar = ttk.Frame(f)
         bar.grid(row=11, column=0, columnspan=3, sticky="w", **PAD)
@@ -221,6 +222,8 @@ class SettingsTab(ttk.Frame):
         self.app.docker_btn.pack(side="left")
         self.app.docker_wake_btn = ttk.Button(bar, text="Start / wake Docker", command=self.app.wake_docker)
         self.app.docker_wake_btn.pack(side="left", padx=8)
+        self.update_btn = ttk.Button(bar, text="Update crawler now", command=self.update_crawler)
+        self.update_btn.pack(side="left")
         ttk.Button(bar, text="Get Docker Desktop", command=lambda: webbrowser.open(zimit_engine.DOCKER_URL)).pack(side="left", padx=8)
 
     def _cache_changed(self):
@@ -262,6 +265,26 @@ class SettingsTab(ttk.Frame):
             btn = ttk.Button(line, text="Install it for me", command=lambda k=key: self.install_tool(k))
             btn.pack(side="left")
             self.tool_btn[key] = btn
+
+    def update_crawler(self):
+        if not messagebox.askyesno(NAME, "Download the newest crawler now? It can be large (up to about 1 GB) and needs internet."):
+            return
+        self.update_btn.state(["disabled"])
+        result = {}
+
+        def work():
+            result["r"] = zimit_engine.update_crawler(lambda t: self.app.docker_msg.set(t))
+
+        def poll():
+            if "r" not in result:
+                self.after(500, poll)
+                return
+            self.update_btn.state(["!disabled"])
+            ok, msg = result["r"]
+            (messagebox.showinfo if ok else messagebox.showwarning)(NAME, msg)
+            threading.Thread(target=self.app.check_docker, daemon=True).start()
+        threading.Thread(target=work, daemon=True).start()
+        self.after(500, poll)
 
     def install_tool(self, key):
         import threading

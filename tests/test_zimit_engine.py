@@ -25,9 +25,12 @@ a = sys.argv[1:]
 d = os.environ["FAKE_DIR"]
 mode = os.environ.get("FAKE_MODE", "ok")
 open(os.path.join(d, "calls.log"), "a").write(" ".join(a) + "\n")
+if a[0] == "image" and mode == "noimage" and not os.path.exists(os.path.join(d, "pulled")):
+    sys.exit(1)
 if a[0] in ("info", "image"):
     sys.exit(0)
 if a[0] == "pull":
+    open(os.path.join(d, "pulled"), "w").write("1")
     print("Pulling from openzim/zimit"); sys.exit(0)
 if a[0] == "kill":
     open(os.path.join(d, "killed"), "w").write("1"); sys.exit(0)
@@ -163,6 +166,19 @@ def test_fake_docker():
     assert err is None and res["size"] == 700, err
     assert any("--pageLimit" in e.get("text", "") for e in ev if e["type"] == "warn"), "no warning for dropped flag"
     print("fake docker: unknown option dropped ok")
+
+    # default: look for a newer crawler every run; switched off: use the local copy; missing: always download
+    import prefs
+    def pulls():
+        return [c for c in open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines() if c.startswith("pull")]
+    run_fake("ok"); assert pulls(), "default should check for a newer crawler"
+    prefs.set("crawler_update", False)
+    res, ev, out, out_dir, err = run_fake("ok")
+    assert not pulls() and any("already on this computer" in e.get("text", "") for e in ev), "local copy should be used"
+    res, ev, out, out_dir, err = run_fake("noimage")
+    assert err is None and pulls(), "a missing crawler must be downloaded even with updates off"
+    prefs.set("crawler_update", True)
+    print("fake docker: crawler download rules ok")
 
     # resume: an interrupted run keeps its work folder; the next run uses it and cleans it up when done
     import zimit_engine as ze

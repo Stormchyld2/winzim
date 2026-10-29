@@ -10,6 +10,7 @@ DEFAULTS = {
     "confirm_all": True,         # ask before "Download all"
     "open_when_done": False,     # open the folder when a job finishes
     "check_docker": True,        # look for Docker Desktop at start
+    "crawler_update": True,      # check for / download the newest crawler before every run (off: use the copy already here)
     # downloads
     "downloads_at_once": 6,      # 1 - 6; the rest wait in line and start as others finish
     "retries": 1,                # 0 - 5 extra tries for a failed download

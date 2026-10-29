@@ -396,6 +396,11 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
                                 try:
                                     r = subprocess.run(stop, capture_output=True, text=True, timeout=30,
                                                        stdin=subprocess.DEVNULL, creationflags=NOWIN)
+                                    if r.returncode == 0:
+                                        try:
+                                            proc.kill()      # the container is stopped: do not wait for the docker program to notice
+                                        except Exception:
+                                            pass
                                     if r.returncode != 0 and (r.stderr or "").strip():
                                         on_event({"type": "log", "text": "docker: " + r.stderr.strip().splitlines()[-1]})
                                 except Exception as e:

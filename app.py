@@ -15,6 +15,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
+import flame
 import settings as appsettings
 from appinfo import CONTACT, VERSION
 from bookui import BookTab
@@ -430,8 +431,8 @@ class App(tk.Tk):
             w = 880
         c.create_line(0, 47, w, 47, fill=p["border"])
         c.create_rectangle(0, 46, 120, 48, fill=p["amber"], width=0)
-        c.create_polygon(28, 8, 38, 22, 36, 36, 28, 42, 20, 36, 18, 24, 23, 28, 23, 16, fill=p["amber"], outline="")
-        c.create_polygon(28, 24, 32, 32, 28, 38, 24, 32, fill=p["flame2"], outline="")
+        c.create_polygon(flame.outline(flame.OUTER, 15, 5, 26, 38), fill=p["amber"], outline="")
+        c.create_polygon(flame.outline(flame.INNER, 15, 5, 26, 38), fill=p["flame2"], outline="")
         c.create_text(50, 17, text="Cindrix Recon", anchor="w", fill=p["text"], font=("Segoe UI", 14, "bold"))
         c.create_text(51, 35, text="Site and book collection", anchor="w", fill=p["muted"], font=("Segoe UI", 9))
         # theme switch (right side)

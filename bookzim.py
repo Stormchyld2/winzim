@@ -20,6 +20,8 @@ from urllib.parse import quote
 from appinfo import NAME, VERSION
 from books import BOOK_EXTS, MANIFEST, clean_title, human_size, main_title_key, title_from_filename
 from zimwriter import ZimWriter
+import bookread
+import flame
 
 MIME = {"PDF": "application/pdf", "EPUB": "application/epub+zip", "MOBI": "application/x-mobipocket-ebook",
         "AZW3": "application/vnd.amazon.ebook", "DJVU": "image/vnd.djvu", "TXT": "text/plain; charset=utf-8",
@@ -225,10 +227,13 @@ header.top:after{content:"";position:absolute;left:0;bottom:-1px;width:130px;hei
 main{max-width:1180px;margin:0 auto;padding:18px 22px 40px}
 .controls{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 14px}
 .controls input,.controls select{background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:4px;
-padding:9px 11px;font:inherit}.controls input{flex:1 1 280px}.controls input:focus,.controls select:focus{outline:1px solid var(--amber)}
+padding:9px 11px;font:inherit}.controls input[type=search]{flex:1 1 100%}
+.chk{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px;padding:0 4px}.controls .chk input{flex:none;width:auto;padding:0;accent-color:var(--amber)}.chk{white-space:nowrap}
+.sp{flex:1 1 20px}.rst{background:transparent;color:var(--amber);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font:inherit;cursor:pointer}
+.controls input{flex:1 1 280px}.controls input:focus,.controls select:focus{outline:1px solid var(--amber)}
 .count{color:var(--muted);font-size:13px;margin:0 0 10px}
-ul.grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px}
-li.book a{display:block;background:var(--panel);border:1px solid var(--border);border-radius:6px;overflow:hidden;color:var(--text);
+ul.grid{list-style:none;margin:0;padding:0;display:grid;align-items:start;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px}
+li.book a{display:block;height:auto!important;background:var(--panel);border:1px solid var(--border);border-radius:6px;overflow:hidden;color:var(--text);
 height:100%}li.book a:hover{border-color:var(--amber);text-decoration:none}
 .cover{height:132px;display:flex;align-items:center;justify-content:center;background:var(--field);overflow:hidden}
 .cover img{width:100%;height:100%;object-fit:cover}
@@ -242,6 +247,7 @@ height:100%}li.book a:hover{border-color:var(--amber);text-decoration:none}
 .empty{color:var(--muted);padding:30px 0}
 footer{color:var(--dim);font-size:12.5px;text-align:center;padding:26px 0 30px;border-top:1px solid var(--border);margin-top:30px}
 .back{display:inline-block;margin:4px 0 16px;font-size:14px}
+.detail.nocover{grid-template-columns:1fr}
 .detail{display:grid;grid-template-columns:200px 1fr;gap:26px;align-items:start}
 @media (max-width:640px){.detail{grid-template-columns:1fr}}
 .detail .cover{height:270px;border:1px solid var(--border);border-radius:6px}.detail .tile{font-size:56px}
@@ -250,44 +256,74 @@ h1{margin:0 0 4px;font-size:26px;line-height:1.25}.by{color:var(--muted);margin:
 .files{background:var(--panel);border:1px solid var(--border);border-radius:6px;max-width:520px}
 .files div{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--border)}
 .files div:last-child{border-bottom:0}.files .f{font-weight:700;width:58px;color:var(--blue)}.files .s{color:var(--muted);flex:1}
-.btn{background:var(--amber);color:#17110a;font-weight:700;border-radius:4px;padding:6px 14px}.btn:hover{text-decoration:none;filter:brightness(1.1)}
+.btn{background:var(--amber);color:#17110a;font-weight:700;border-radius:4px;padding:6px 14px}.btn.ghost{background:transparent;color:var(--blue);border:1px solid var(--border);font-weight:600}
+.files .btn+.btn{margin-left:-4px}
+.btn:hover{text-decoration:none;filter:brightness(1.1)}
 .note{color:var(--muted);font-size:13px;margin:12px 0 0;max-width:62ch}
 .kv{color:var(--muted);font-size:13.5px;margin-top:16px}.kv b{color:var(--text);font-weight:600}
 .pd{color:var(--green)}
+body.reader{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.rbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;background:#0f1511;border-bottom:1px solid var(--border)}
+@media (prefers-color-scheme: light){.rbar{background:#fff}}
+.rbar button,.rbar select{background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 11px;font:inherit;cursor:pointer}
+.rbar button:hover{border-color:var(--amber)}.rbar select{flex:1 1 160px;min-width:0}.rbar .ttl{font-weight:600;max-width:34ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#fr{flex:1;width:100%;border:0;background:#fff}
 """
 
 JS = """
 (function(){
-var q=document.getElementById('q'),cat=document.getElementById('cat'),fmt=document.getElementById('fmt'),
-sort=document.getElementById('sort'),list=document.getElementById('list'),count=document.getElementById('count'),
-empty=document.getElementById('empty');
+function $(i){return document.getElementById(i);}
+var q=$('q'),cat=$('cat'),fmt=$('fmt'),lang=$('lang'),size=$('size'),pd=$('pd'),sort=$('sort'),dir=$('dir'),
+list=$('list'),count=$('count'),empty=$('empty'),reset=$('reset');
 if(!list)return;
 var items=[].slice.call(list.children);
 function val(el,k){return (el.getAttribute('data-'+k)||'');}
+function num(el,k){return parseInt(val(el,k))||0;}
+var MB=1048576;
+function sizeOk(n,s){return !s||(s==='s'&&n<10*MB)||(s==='m'&&n>=10*MB&&n<100*MB)||(s==='l'&&n>=100*MB);}
 function apply(){
-  var t=q.value.toLowerCase().trim(),c=cat.value,f=fmt.value,shown=0;
+  var t=q.value.toLowerCase().trim().split(/\\s+/).filter(Boolean),c=cat.value,f=fmt.value,l=lang?lang.value:'',
+  sz=size.value,p=pd.checked,shown=0;
   items.forEach(function(li){
-    var ok=(!t||(val(li,'title')+' '+val(li,'author')).indexOf(t)>=0)&&(!c||val(li,'cat')===c)&&(!f||(' '+val(li,'fmts')+' ').indexOf(' '+f+' ')>=0);
+    var hay=val(li,'title')+' '+val(li,'author')+' '+val(li,'cat');
+    var ok=t.every(function(w){return hay.indexOf(w)>=0;})&&(!c||val(li,'cat')===c)&&
+      (!f||(' '+val(li,'fmts')+' ').indexOf(' '+f+' ')>=0)&&(!l||val(li,'lang')===l)&&sizeOk(num(li,'size'),sz)&&(!p||val(li,'pd')==='1');
     li.style.display=ok?'':'none';if(ok)shown++;
   });
-  var s=sort.value;
+  var s=sort.value,m=dir.value==='desc'?-1:1;
   var sorted=items.slice().sort(function(a,b){
-    if(s==='author')return val(a,'author').localeCompare(val(b,'author'))||val(a,'title').localeCompare(val(b,'title'));
-    if(s==='year')return (parseInt(val(b,'year'))||0)-(parseInt(val(a,'year'))||0);
-    if(s==='size')return (parseInt(val(b,'size'))||0)-(parseInt(val(a,'size'))||0);
-    if(s==='cat')return val(a,'cat').localeCompare(val(b,'cat'))||val(a,'title').localeCompare(val(b,'title'));
-    return val(a,'title').localeCompare(val(b,'title'));});
+    var r;
+    if(s==='author')r=val(a,'author').localeCompare(val(b,'author'));
+    else if(s==='year')r=num(a,'year')-num(b,'year');
+    else if(s==='size')r=num(a,'size')-num(b,'size');
+    else if(s==='cat')r=val(a,'cat').localeCompare(val(b,'cat'));
+    else r=0;
+    return (r||val(a,'title').localeCompare(val(b,'title')))*(r?m:m);});
   sorted.forEach(function(li){list.appendChild(li);});
   count.textContent='Showing '+shown+' of '+items.length+' books';
   empty.style.display=shown?'none':'';
+  var on=q.value||c||f||l||sz||p;reset.style.visibility=on?'visible':'hidden';
 }
-[q,cat,fmt,sort].forEach(function(el){el.addEventListener('input',apply);el.addEventListener('change',apply);});
+[q,cat,fmt,lang,size,pd,sort,dir].forEach(function(el){if(!el)return;el.addEventListener('input',apply);el.addEventListener('change',apply);});
+reset.addEventListener('click',function(){q.value='';cat.value='';fmt.value='';if(lang)lang.value='';size.value='';pd.checked=false;apply();});
 apply();
 })();
 """
 
-FLAME = ('<svg class="flame" viewBox="0 0 40 50" aria-hidden="true"><polygon points="20,0 33,18 30,36 20,45 10,36 7,20 14,25 14,9" '
-         'fill="#d9a02b"/><polygon points="20,22 26,33 20,41 14,33" fill="#ffd36b"/></svg>')
+FLAME = flame.svg()
+
+
+LANG_NAMES = {"en": "English", "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese", "it": "Italian",
+              "ru": "Russian", "zh": "Chinese", "ar": "Arabic", "nl": "Dutch", "ja": "Japanese", "ko": "Korean",
+              "pl": "Polish", "sv": "Swedish", "tr": "Turkish", "hi": "Hindi"}
+
+
+def lang_of(b):
+    return ((b.get("language") or "")[:2]).lower()
+
+
+def is_pd(b):
+    return str(b.get("public_domain", "")).strip().lower() in ("yes", "true", "1", "y")
 
 
 def initials(title):
@@ -302,7 +338,7 @@ def _e(s):
 def _cover_html(b, prefix=""):
     if b.get("cover_url"):
         return f'<div class="cover"><img src="{prefix}{_e(b["cover_url"])}" alt="" loading="lazy"></div>'
-    return f'<div class="cover"><span class="tile">{_e(initials(b["title"]))}</span></div>'
+    return ""
 
 
 def page(title, body, prefix="", script=False):
@@ -323,20 +359,33 @@ def render_index(books_, title="Recon Library", built=None):
         sub = " · ".join(x for x in (b["author"], str(b["year"]) if b["year"] else "") if x)
         cards.append(
             f'<li class="book" data-title="{_e(b["title"].lower())}" data-author="{_e((b["author"] or "").lower())}" '
-            f'data-cat="{_e(b["category"])}" data-fmts="{" ".join(fl)}" data-year="{b["year"] or ""}" data-size="{size}">'
+            f'data-cat="{_e(b["category"])}" data-fmts="{" ".join(fl)}" data-year="{b["year"] or ""}" data-size="{size}" data-lang="{_e(lang_of(b))}" data-pd="{"1" if is_pd(b) else ""}">'
             f'<a href="books/{_e(b["slug"])}.html">{_cover_html(b)}<div class="info"><div class="t">{_e(b["title"])}</div>'
             f'<div class="a">{_e(sub) or "&nbsp;"}</div><div class="meta">'
             + "".join(f'<span class="chip">{f}</span>' for f in fl) + f'<span>{human_size(size)}</span></div>'
             f'<div class="cat">{_e(b["category"])}</div></div></a></li>')
-    opts_c = '<option value="">All categories</option>' + "".join(f'<option>{_e(c)}</option>' for c in cats)
+    counts = {c: sum(1 for b in books_ if b["category"] == c) for c in cats}
+    opts_c = f'<option value="">All categories ({len(books_)})</option>' + "".join(
+        f'<option value="{_e(c)}">{_e(c)} ({counts[c]})</option>' for c in cats)
     opts_f = '<option value="">All formats</option>' + "".join(f"<option>{f}</option>" for f in fmts)
+    any_pd = any(is_pd(b) for b in books_)
+    langs = sorted({lang_of(b) for b in books_ if lang_of(b)})
+    lang_sel = ('<select id="lang"><option value="">All languages</option>' + "".join(
+        f'<option value="{c}">{_e(LANG_NAMES.get(c, c))}</option>' for c in langs) + "</select>") if len(langs) > 1 else ""
     body = (f'<header class="top">{FLAME}<div class="brand"><b>{_e(title)}</b><span>{len(books_)} books · {human_size(total)} · '
             f'built {built}</span></div></header><main><div class="controls">'
-            f'<input id="q" type="search" placeholder="Search title or author" autocomplete="off">'
-            f'<select id="cat">{opts_c}</select><select id="fmt">{opts_f}</select>'
-            f'<select id="sort"><option value="title">Sort: title</option><option value="author">Sort: author</option>'
-            f'<option value="year">Sort: newest</option><option value="size">Sort: largest</option>'
-            f'<option value="cat">Sort: category</option></select></div>'
+            f'<input id="q" type="search" placeholder="Search title, author or category" autocomplete="off">'
+            f'<select id="cat">{opts_c}</select><select id="fmt">{opts_f}</select>{lang_sel}'
+            f'<select id="size"><option value="">Any size</option><option value="s">Under 10 MB</option>'
+            f'<option value="m">10 - 100 MB</option><option value="l">Over 100 MB</option></select>'
+            f'<label class="chk"><input type="checkbox" id="pd"{"" if any_pd else " disabled"}> Public domain only</label>'
+            f'<span class="sp"></span>'
+            f'<select id="sort" aria-label="Sort by"><option value="title">Sort by title</option><option value="author">Sort by author</option>'
+            f'<option value="year">Sort by year</option><option value="size">Sort by size</option>'
+            f'<option value="cat">Sort by category</option></select>'
+            f'<select id="dir" aria-label="Order"><option value="asc">Ascending (A-Z, oldest, smallest)</option>'
+            f'<option value="desc">Descending (Z-A, newest, largest)</option></select>'
+            f'<button type="button" id="reset" class="rst" style="visibility:hidden">Clear filters</button></div>'
             f'<p class="count" id="count"></p><ul class="grid" id="list">{"".join(cards)}</ul>'
             f'<p class="empty" id="empty" style="display:none">No books match. Try fewer words.</p>'
             f'<footer>Made with {NAME} {VERSION} · {built}</footer></main>')
@@ -347,11 +396,18 @@ def render_detail(b, library="Recon Library"):
     rows = []
     for f in [f for f in FORMAT_ORDER if f in b["formats"]]:
         d = b["formats"][f]
-        rows.append(f'<div><span class="f">{f}</span><span class="s">{human_size(d["size"])}</span>'
-                    f'<a class="btn" href="../{quote(d["url"])}">{"Open" if f in ("PDF", "TXT") else "Save"} {f}</a></div>')
+        if d.get("reader"):
+            btns = (f'<a class="btn" href="../{quote(d["reader"])}">Read</a>'
+                    f'<a class="btn ghost" href="../{quote(d["url"])}">Save</a>')
+        elif f == "PDF":
+            btns = f'<a class="btn" href="../{quote(d["url"])}">Open PDF</a>'
+        else:
+            btns = f'<a class="btn" href="../{quote(d["url"])}">Save {f}</a>'
+        rows.append(f'<div><span class="f">{f}</span><span class="s">{human_size(d["size"])}</span>{btns}</div>')
     note = ""
-    if any(f in b["formats"] for f in ("EPUB", "MOBI", "AZW3")):
-        note = ('<p class="note">EPUB, MOBI and AZW3 files are not shown inside Kiwix. Save the file, then open it in an '
+    unread = [f for f, d in b["formats"].items() if f != "PDF" and not d.get("reader")]
+    if unread:
+        note = (f'<p class="note">{", ".join(unread)} cannot be read inside Kiwix. Use Save, then open the file in an '
                 'e-book reader app.</p>')
     sub = " · ".join(x for x in (b["author"], str(b["year"]) if b["year"] else "") if x)
     kv = [f"<b>Category:</b> {_e(b['category'])}"]
@@ -360,30 +416,54 @@ def render_detail(b, library="Recon Library"):
     if str(b.get("public_domain", "")).strip().lower() in ("yes", "true", "1", "y"):
         kv.append('<span class="pd">Public domain</span>')
     body = (f'<header class="top">{FLAME}<div class="brand"><b>{_e(library)}</b><span>Offline library</span></div></header>'
-            f'<main><a class="back" href="../index.html">&larr; All books</a><div class="detail">{_cover_html(b, "../")}<div>'
+            f'<main><a class="back" href="../index.html">&larr; All books</a><div class="detail{"" if b.get("cover_url") else " nocover"}">{_cover_html(b, "../")}<div>'
             f'<h1>{_e(b["title"])}</h1><p class="by">{_e(sub)}</p>'
             + (f'<p class="desc">{_e(b["description"])}</p>' if b.get("description") else "")
             + f'<div class="files">{"".join(rows)}</div>{note}<p class="kv">{"  ·  ".join(kv)}</p></div></div></main>')
     return page(b["title"], body, "../")
 
 
+def render_reader(b, fmt, rd, folder):
+    spine = [[quote(f"{folder}/{p}"), t] for p, t in rd.spine]
+    js = (bookread.READER_JS.replace("%SPINE%", json.dumps(spine)).replace("%KEY%", json.dumps(f"{b['slug']}-{fmt}"))
+          .replace("%%", "%"))
+    body = (f'<div class="rbar"><a href="../books/{_e(b["slug"])}.html">&larr; Book</a><span class="ttl">{_e(b["title"])}</span>'
+            '<button id="prev" title="Previous (left arrow)">&lsaquo; Prev</button><select id="ch" aria-label="Chapter"></select>'
+            '<button id="next" title="Next (right arrow)">Next &rsaquo;</button><button id="smaller" title="Smaller text">A-</button>'
+            '<button id="bigger" title="Bigger text">A+</button><button id="theme" title="Page color">Light/Dark</button></div>'
+            '<iframe id="fr" title="Book"></iframe>')
+    h = page(b["title"], body, "../")
+    return h.replace("<body>", '<body class="reader">', 1).replace("</body>", f"<script>{js}</script></body>").encode("utf-8")
+
+
 def make_icon_png(size=48):
-    """A small dark tile with an amber flame, as PNG bytes (the ZIM's icon)."""
-    def inside(x, y):  # flame outline in a 40x50 box scaled to the tile
-        fx, fy = (x / size) * 40, (y / size) * 50
-        poly = [(20, 2), (33, 18), (30, 36), (20, 45), (10, 36), (7, 20), (14, 25), (14, 9)]
-        res, j = False, len(poly) - 1
-        for i in range(len(poly)):
-            xi, yi, xj, yj = *poly[i], *poly[j]
+    """A small dark tile with the amber flame, as PNG bytes (the ZIM's icon)."""
+    def poly(segs):
+        pts = flame.outline(segs, size * 0.17, size * 0.07, size * 0.66, size * 0.86, 10)
+        return list(zip(pts[0::2], pts[1::2]))
+    outer, inner = poly(flame.OUTER), poly(flame.INNER)
+
+    def inside(pts, fx, fy):
+        res, j = False, len(pts) - 1
+        for i in range(len(pts)):
+            xi, yi = pts[i]
+            xj, yj = pts[j]
             if (yi > fy) != (yj > fy) and fx < (xj - xi) * (fy - yi) / (yj - yi) + xi:
                 res = not res
             j = i
         return res
+    bg, amber, light = (19, 24, 20), (217, 160, 43), (255, 211, 107)
     raw = bytearray()
     for y in range(size):
         raw.append(0)
         for x in range(size):
-            raw += bytes((217, 160, 43)) if inside(x, y) else bytes((19, 24, 20))
+            acc = [0, 0, 0]
+            for sy in (0.17, 0.5, 0.83):
+                for sx in (0.17, 0.5, 0.83):
+                    col = light if inside(inner, x + sx, y + sy) else amber if inside(outer, x + sx, y + sy) else bg
+                    for k in range(3):
+                        acc[k] += col[k]
+            raw += bytes(v // 9 for v in acc)
 
     def chunk(t, d):
         return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
@@ -409,7 +489,7 @@ def build_books_zim(folder, out_path, title="Recon Library", on_event=None, canc
     w = ZimWriter(part, {"Title": title, "Description": f"{len(books_)} books with a searchable catalog",
                          "Language": lang, "Creator": NAME, "Publisher": NAME, "Date": datetime.date.today().isoformat(),
                          "Name": ascii_slug(title).replace("-", "_") or "books", "Tags": "books", "Scraper": f"{NAME} {VERSION}"})
-    skipped, files, total = [], 0, sum(len(b["formats"]) for b in books_)
+    skipped, files, readers, no_reader, total = [], 0, 0, [],  sum(len(b["formats"]) for b in books_)
     try:
         w.add_entry("style.css", "", "text/css", CSS.encode("utf-8"))
         w.add_entry("app.js", "", "application/javascript", JS.encode("utf-8"))
@@ -431,6 +511,17 @@ def build_books_zim(folder, out_path, title="Recon Library", on_event=None, canc
                 with open(f["path"], "rb") as fh:
                     w.add_entry(f["url"], "", MIME.get(fmt, "application/octet-stream"), fh.read())
                 files += 1
+                if fmt in bookread.READABLE:
+                    try:
+                        rd = bookread.make_readable(fmt, f["path"])
+                        folder = f"read/{b['slug']}-{fmt.lower()}"
+                        for pth, (mm, data) in rd.files.items():
+                            w.add_entry(f"{folder}/{pth}", "", mm, data)
+                        w.add_entry(folder + ".html", b["title"], "text/html", render_reader(b, fmt, rd, b["slug"] + "-" + fmt.lower()))
+                        f["reader"] = folder + ".html"
+                        readers += 1
+                    except bookread.Unreadable as e:
+                        no_reader.append((f["name"], str(e)))
                 emit({"type": "build", "done": done, "total": total})
         books_ = [b for b in books_ if b["formats"]]
         for b in books_:
@@ -446,4 +537,5 @@ def build_books_zim(folder, out_path, title="Recon Library", on_event=None, canc
         except OSError:
             pass
         raise
-    return {"size": os.path.getsize(out_path), "books": len(books_), "files": files, "skipped": skipped}
+    return {"size": os.path.getsize(out_path), "books": len(books_), "files": files, "skipped": skipped,
+            "readers": readers, "no_reader": no_reader}

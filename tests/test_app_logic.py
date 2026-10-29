@@ -53,10 +53,12 @@ answers = {"yncancel": None}
 mb.askyesnocancel = lambda *a, **k: answers["yncancel"]
 fd = types.ModuleType("tkinter.filedialog"); fd.askdirectory = lambda **k: ""
 st = types.ModuleType("tkinter.scrolledtext"); st.ScrolledText = W
+sd = types.ModuleType("tkinter.simpledialog"); sd.askstring = lambda *a, **k: None
+tk.simpledialog = sd
 tk.ttk, tk.messagebox, tk.filedialog, tk.scrolledtext = ttk, mb, fd, st
 tk.filedialog = fd
 sys.modules.update({"tkinter": tk, "tkinter.ttk": ttk, "tkinter.messagebox": mb,
-                    "tkinter.filedialog": fd, "tkinter.scrolledtext": st})
+                    "tkinter.filedialog": fd, "tkinter.simpledialog": sd, "tkinter.scrolledtext": st})
 
 import app as appmod
 from test_sitecheck import serve

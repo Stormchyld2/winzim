@@ -1,5 +1,5 @@
 """Name, version and contact details shown in the app and README."""
 NAME = "Cindrix Recon"
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 CONTACT = "cindrixops@proton.me"
 REPO = "https://github.com/Stormchyld2/winzim"

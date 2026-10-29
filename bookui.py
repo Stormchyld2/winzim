@@ -5,7 +5,7 @@ import subprocess
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from urllib.parse import urlsplit
 
 import books
@@ -182,6 +182,8 @@ class BookTab(ttk.Frame):
         self.dl_all_btn = ttk.Button(bar, text="Download all", command=self.download_all)
         self.dl_all_btn.pack(side="left")
         ttk.Button(bar, text="Open folder", command=self.open_folder).pack(side="left", padx=6)
+        self.zim_btn = ttk.Button(bar, text="Books \u2192 ZIM", command=self.make_zim)
+        self.zim_btn.pack(side="left")
         self.status = tk.StringVar(value="Enter a library address and click Find books.")
         ttk.Label(bar, textvariable=self.status, style="Amber.TLabel").pack(side="right")
         self.progress = ttk.Progressbar(self, mode="indeterminate")
@@ -462,6 +464,14 @@ class BookTab(ttk.Frame):
             if e["final"]:
                 self.busy_ui(False, "done")
                 self.status.set(f"{sum(1 for c in self.cards if c['best'])} with a working free download.")
+        elif t == "phase":
+            self.status.set(e["text"])
+        elif t == "log":
+            self.status.set(e["text"])
+        elif t == "build":
+            self.status.set(f"Packing the books: {e['done']} of {e['total']}")
+        elif t == "zim_done":
+            self._zim_done(e)
         elif t == "dl_progress":
             self.status.set(f"Downloading {e['i']} of {e['n']}: {e['title'][:40]}  {e['pct']}%")
         elif t == "dl_done":
@@ -602,6 +612,55 @@ class BookTab(ttk.Frame):
                                    + (f" (about {human_size(total)})" if total else "") + f" to\n{self.folder.get()} ?"):
             return
         self.start_download(items)
+
+    # ------------------------------------------------------------ books -> ZIM
+    def make_zim(self):
+        if self.running:
+            return
+        folder = self.folder.get().strip()
+        if not folder or not os.path.isdir(folder):
+            messagebox.showinfo("Books to ZIM", "Choose the folder that holds your books first (Save to folder), then try again.")
+            return
+        name = simpledialog.askstring("Books to ZIM", "Name of the library (shown at the top of the website):",
+                                      initialvalue="Recon Library", parent=self)
+        if not name:
+            return
+        out = filedialog.asksaveasfilename(title="Save the ZIM file as", defaultextension=".zim", initialfile="recon-library.zim",
+                                           initialdir=folder, filetypes=[("ZIM file", "*.zim")])
+        if not out:
+            return
+        self.cancel = threading.Event()
+        self.busy_ui(True, "Reading the books...")
+
+        def work():
+            try:
+                import bookzim
+                res = bookzim.build_books_zim(folder, os.path.normpath(out), name.strip(), self.emit, self.cancel)
+                self.emit({"type": "zim_done", "path": os.path.normpath(out), "res": res})
+            except RuntimeError as e:
+                if str(e) == "Cancelled":
+                    self.emit({"type": "zim_done", "path": None, "res": None})
+                else:
+                    self.emit({"type": "error", "text": str(e)})
+            except Exception as e:  # keep the UI alive whatever happens
+                self.emit({"type": "error", "text": f"Could not build the ZIM: {e}"})
+        threading.Thread(target=work, daemon=True).start()
+
+    def _zim_done(self, e):
+        self.busy_ui(False, "done")
+        if not e["path"]:
+            self.status.set("Cancelled.")
+            return
+        self.last_file = e["path"]
+        r = e["res"]
+        self.status.set(f"ZIM saved: {r['books']} books, {human_size(r['size'])}.")
+        msg = (f"Made {os.path.basename(e['path'])} ({human_size(r['size'])}).\n\n{r['books']} books, {r['readers']} readable "
+               "inside Kiwix (EPUB, MOBI, AZW3, TXT, FB2, CBZ, RTF); PDFs open in Kiwix too.")
+        if r["no_reader"]:
+            msg += "\n\nNo reader (download only):\n" + "\n".join(f"  {n[:45]}: {why}" for n, why in r["no_reader"][:6])
+        if r["skipped"]:
+            msg += "\n\nLeft out:\n" + "\n".join(f"  {n[:45]}: {why}" for n, why in r["skipped"][:6])
+        messagebox.showinfo("Books to ZIM", msg)
 
     # ------------------------------------------------------------ downloading
     def start_download(self, items):

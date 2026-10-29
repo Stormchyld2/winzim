@@ -23,6 +23,7 @@ jobs:
           python tests/test_features.py
           python tests/test_detail.py
           python tests/test_books.py
+          python tests/test_bookzim.py
           python tests/test_app_logic.py
           python tests/test_bookui_logic.py
       - name: Build exe

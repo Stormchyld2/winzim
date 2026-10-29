@@ -158,4 +158,31 @@ assert len(rows) == 1 and rows[0]["title"] == "Survival" and rows[0]["public_dom
 b.running = False
 srv.shutdown()
 print("download worker + manifest ok")
+
+# ---------------------------------------------------------------- Books -> ZIM button
+import time
+zroot = tempfile.mkdtemp()
+open(os.path.join(zroot, "Notes.txt"), "w").write("Hello.\n\nWorld.\n")
+zout = os.path.join(zroot, "out.zim")
+b.folder.set(zroot)
+bookui.simpledialog.askstring = lambda *a, **k: "My Lib"
+bookui.filedialog.asksaveasfilename = lambda **k: zout
+shown = []
+bookui.messagebox.showinfo = lambda *a, **k: shown.append(a)
+b.running = False
+b.make_zim()
+zev = []
+t0 = time.time()
+while time.time() - t0 < 20 and not any(e["type"] == "zim_done" for e in zev):
+    try:
+        k, v = b.q.get(timeout=0.5)
+        if k == "book":
+            zev.append(v)
+            b.on_event(v)
+    except Exception:
+        pass
+zd = [e for e in zev if e["type"] == "zim_done"]
+assert zd and zd[0]["res"]["books"] == 1 and zd[0]["res"]["readers"] == 1 and os.path.exists(zout), zev
+assert shown and "1 books" in shown[0][1] and b.running is False and "ZIM saved" in b.status.get()
+print("books -> ZIM button ok")
 print("ALL BOOK UI LOGIC TESTS PASSED")

@@ -219,6 +219,8 @@ class SettingsTab(ttk.Frame):
         bar.grid(row=11, column=0, columnspan=3, sticky="w", **PAD)
         self.app.docker_btn = ttk.Button(bar, text="Check again", command=self.app.recheck_docker)
         self.app.docker_btn.pack(side="left")
+        self.app.docker_wake_btn = ttk.Button(bar, text="Start / wake Docker", command=self.app.wake_docker)
+        self.app.docker_wake_btn.pack(side="left", padx=8)
         ttk.Button(bar, text="Get Docker Desktop", command=lambda: webbrowser.open(zimit_engine.DOCKER_URL)).pack(side="left", padx=8)
 
     def _cache_changed(self):

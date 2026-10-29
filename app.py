@@ -790,6 +790,17 @@ class App(tk.Tk):
         state, path = docker_status()
         self.q.put(("docker", (state, path)))
 
+    def wake_docker(self):
+        """Settings 'Start / wake Docker': starts Docker Desktop or wakes it from Resource Saver and waits for it."""
+        btn = getattr(self, "docker_wake_btn", None)
+        if btn is not None:
+            btn.state(["disabled"])
+
+        def work():
+            zimit_engine.wake_docker(lambda t: self.q.put(("docker_note", t)))
+            self.check_docker()
+        threading.Thread(target=work, daemon=True).start()
+
     def recheck_docker(self):
         """The Settings 'Check again' button: show that something is happening, then show the result."""
         self.docker_msg.set("Checking Docker Desktop... (up to 20 seconds)")
@@ -959,11 +970,14 @@ class App(tk.Tk):
                     self.settings.on_event(val)
                 elif kind == "bookcheck":
                     self.books.on_check_result(*val)
+                elif kind == "docker_note":
+                    self.docker_msg.set("Docker Desktop: " + val)
                 elif kind == "docker":
                     val, dpath = val
                     self.docker_state = val
-                    if getattr(self, "docker_btn", None) is not None:
-                        self.docker_btn.state(["!disabled"])
+                    for b in ("docker_btn", "docker_wake_btn"):
+                        if getattr(self, b, None) is not None:
+                            getattr(self, b).state(["!disabled"])
                     self.docker_msg.set({
                         "ready": "Docker Desktop: ready" + (f" ({dpath})." if dpath else "."),
                         "not_running": "Docker Desktop: installed but not running - start it before using the Cindrix Recon engine."

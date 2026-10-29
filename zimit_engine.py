@@ -229,6 +229,64 @@ def _stream(proc, on_line):
     return proc.wait()
 
 
+def desktop_exe(docker_path):
+    """Docker Desktop.exe next to the docker.exe we found (...\\Docker\\resources\\bin\\docker.exe), or None."""
+    if not docker_path:
+        return None
+    cands = []
+    here = os.path.dirname(docker_path)
+    for up in (3, 2):
+        base = here
+        for _ in range(up):
+            base = os.path.dirname(base)
+        cands.append(os.path.join(base, "Docker Desktop.exe"))
+    for var in ("ProgramFiles", "LOCALAPPDATA"):
+        if os.environ.get(var):
+            cands.append(os.path.join(os.environ[var], "Docker", "Docker", "Docker Desktop.exe"))
+            cands.append(os.path.join(os.environ[var], "Programs", "DockerDesktop", "Docker Desktop.exe"))
+    return next((c for c in cands if os.path.isfile(c)), None)
+
+
+def wake_docker(on_msg=None, cancel=None, timeout_s=150, poll_s=3, status=None):
+    """Start Docker Desktop (or wake it from Resource Saver) and wait until the engine answers.
+
+    Returns the final state ('ready', 'not_running' or 'missing'). `status` is replaceable for tests."""
+    status = status or docker_status
+    say = on_msg or (lambda t: None)
+    state, d = status()
+    if state != "not_running":
+        return state
+    say("Starting Docker Desktop...")
+    started = False
+    try:                                    # newer Docker versions can start themselves from the command line
+        subprocess.Popen([d, "desktop", "start"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, creationflags=NOWIN)
+        started = True
+    except Exception:
+        pass
+    exe = desktop_exe(d)
+    if exe:
+        try:
+            subprocess.Popen([exe], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=NOWIN)
+            started = True
+        except Exception:
+            pass
+    if not started:
+        say("Could not start Docker Desktop by itself. Open it from the Start menu.")
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        if cancel is not None and cancel.is_set():
+            return "not_running"
+        time.sleep(poll_s)
+        state, d = status()
+        if state == "ready":
+            say("Docker Desktop is ready.")
+            return "ready"
+        say(f"Waiting for Docker Desktop to start... {int(time.time() - t0)}s")
+    return "not_running"
+
+
 def run_zimit(url, out_path, o, on_event, cancel):
     """Run Zimit for `url` and place the finished ZIM at `out_path`.
 
@@ -236,6 +294,11 @@ def run_zimit(url, out_path, o, on_event, cancel):
     message on any problem (including 'Cancelled').
     """
     state, docker = docker_status()
+    if state == "not_running":      # asleep (Resource Saver) or not started: wake it instead of making the person do it
+        state = wake_docker(lambda t: on_event({"type": "phase", "text": t}), cancel)
+        if cancel.is_set():
+            raise RuntimeError("Cancelled")
+        state, docker = docker_status() if state == "ready" else (state, docker)
     if state == "missing":
         raise RuntimeError(
             "Docker Desktop is required for the Cindrix Recon engine but wasn't found.\n\n"
@@ -244,7 +307,7 @@ def run_zimit(url, out_path, o, on_event, cancel):
     if state == "not_running":
         raise RuntimeError(
             "Docker Desktop is installed but not running.\n\n"
-            "Start Docker Desktop, wait until it says the engine is running, then click Convert again.")
+            "The program tried to start it but it did not come up in time. Open Docker Desktop yourself, wait until it says the engine is running, then click Convert again.")
 
     folder = os.path.dirname(os.path.abspath(out_path))
     name = os.path.splitext(os.path.basename(out_path))[0]

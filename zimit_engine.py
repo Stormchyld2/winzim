@@ -146,13 +146,15 @@ def optional_flags(o):
     return out
 
 
-def build_command(docker, container, work_dir, url, name, o, extras=True, legacy=False):
+def build_command(docker, container, work_dir, url, name, o, extras=True, legacy=False, build=False):
     """legacy=True uses the old --sizeLimit/--timeLimit names (older crawler images); the current ones are the Soft variants,
     which stop the crawl and still save the ZIM."""
     cmd = [docker, "run", "--rm", "--name", container, "--shm-size=1g",
            "-v", f"{work_dir}:/output", IMAGE, "zimit",
            "--seeds", url, "--name", name, "--output", "/output",
            "--workers", str(max(1, o.workers))]
+    if build:      # a fixed build folder (inside the mounted folder) that the crawler keeps, so a later run can continue
+        cmd += ["--build", "/output/build"]
     if o.max_pages:
         cmd += ["--pageLimit", str(o.max_pages)]
     if o.max_mb:
@@ -307,7 +309,31 @@ def wake_docker(on_msg=None, cancel=None, timeout_s=150, poll_s=3, status=None):
     return "not_running"
 
 
-def run_zimit(url, out_path, o, on_event, cancel):
+def resume_dir(out_path, url):
+    """The folder where this site's unfinished crawl is kept between runs."""
+    import hashlib
+    folder = os.path.dirname(os.path.abspath(out_path))
+    key = hashlib.sha1(url.strip().lower().rstrip("/").encode("utf-8")).hexdigest()[:10]   # per site, not per file name
+    return os.path.join(folder, f".recon_resume_{key}")
+
+
+def unfinished(out_path, url):
+    """The kept folder of an earlier unfinished run of this site (with something collected), or None."""
+    d = resume_dir(out_path, url)
+    b = os.path.join(d, "build")
+    try:
+        if os.path.isdir(b) and any(True for _ in os.scandir(b)):
+            return d
+    except OSError:
+        pass
+    return None
+
+
+def discard_unfinished(out_path, url):
+    shutil.rmtree(resume_dir(out_path, url), ignore_errors=True)
+
+
+def run_zimit(url, out_path, o, on_event, cancel, resume=True):
     """Run Zimit for `url` and place the finished ZIM at `out_path`.
 
     Returns a dict: size, pages, failed. Raises RuntimeError with a readable
@@ -333,8 +359,14 @@ def run_zimit(url, out_path, o, on_event, cancel):
     name = os.path.splitext(os.path.basename(out_path))[0]
     stamp = int(time.time())
     container = f"recon-{stamp}"
-    work = os.path.join(folder, f".recon_work_{stamp}")
+    work = resume_dir(out_path, url)
+    if not resume:
+        shutil.rmtree(work, ignore_errors=True)       # the person chose to start over
+    elif unfinished(out_path, url):
+        on_event({"type": "log", "text": "Continuing an earlier unfinished run: pages already collected are reused."})
+        on_event({"type": "phase", "text": "Continuing an earlier run of this site..."})
     os.makedirs(work, exist_ok=True)
+    finished = []
     tail, stats = [], {"crawled": 0, "failed": 0, "limit": None}
 
     def on_line(raw):
@@ -385,11 +417,17 @@ def run_zimit(url, out_path, o, on_event, cancel):
 
         extras, legacy, dropped = bool(optional_flags(o)), False, set()
         for _attempt in range(4):
-            cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy)
+            cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy, build=True)
             if dropped:
                 cmd = drop_flags(cmd, dropped)
             on_event({"type": "log", "text": "> " + " ".join(cmd)})
             del tail[:]
+            for f in os.listdir(work):                    # a ZIM left by an earlier attempt must not be mistaken for this run's
+                if f.lower().endswith(".zim"):
+                    try:
+                        os.remove(os.path.join(work, f))
+                    except OSError:
+                        pass
             rc = run(cmd, "Crawling the site with Cindrix Recon...")
             if cancel.is_set():
                 raise RuntimeError("Cancelled")
@@ -423,10 +461,12 @@ def run_zimit(url, out_path, o, on_event, cancel):
         if os.path.exists(out_path):
             os.remove(out_path)
         shutil.move(newest, out_path)
+        finished.append(True)
         limit = stats["limit"]
         if not limit and o.max_pages and stats["crawled"] >= o.max_pages:
             limit = "pages"
         return {"size": os.path.getsize(out_path), "pages": stats["crawled"], "failed": stats["failed"],
                 "limit_hit": limit}
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        if finished or not resume:
+            shutil.rmtree(work, ignore_errors=True)       # done: nothing to continue. Interrupted: the work is kept.

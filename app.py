@@ -918,6 +918,14 @@ class App(tk.Tk):
             self.apply_preset()
         self.save_settings()
 
+        self.resume_run = True
+        if self.engine.get() == "zimit" and zimit_engine.unfinished(out, url):
+            ans = messagebox.askyesnocancel(
+                APP_NAME, "An earlier run of this site was interrupted, and the pages it collected were kept.\n\n"
+                          "Yes = continue where it left off\nNo = throw that away and start over\nCancel = do nothing")
+            if ans is None:
+                return
+            self.resume_run = bool(ans)
         self.run_notes = []
         if self.engine.get() == "zimit":
             if self.dv["shrink_images"].get():
@@ -951,7 +959,7 @@ class App(tk.Tk):
         emit = lambda e: self.q.put(("event", e))  # noqa: E731
         try:
             if engine == "zimit":
-                r = run_zimit(url, out, opts, emit, self.cancel)
+                r = run_zimit(url, out, opts, emit, self.cancel, resume=getattr(self, "resume_run", True))
                 self.q.put(("done", (out, r["size"], r["pages"], None, r["failed"], r.get("limit_hit"), False, 0)))
             else:
                 if opts.shrink_images:

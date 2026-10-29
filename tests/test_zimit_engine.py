@@ -39,6 +39,12 @@ if a[0] == "run":
     if mode == "reject" and ("--blockRules" in a or "--depth" in a):
         print("error: unknown argument --blockRules", flush=True)
         sys.exit(2)
+    if "--build" in a:
+        bdir = os.path.join(mount, "build"); os.makedirs(bdir, exist_ok=True)
+        open(os.path.join(bdir, "collected.warc"), "a").write("page\n")
+        if mode == "interrupt" and not os.path.exists(os.path.join(d, "second_run")):
+            open(os.path.join(d, "second_run"), "w").write("1")
+            sys.exit(137)
     if mode == "unknownflag" and "--pageLimit" in a:
         print("usage: zimit [-h]\nzimit: error: unrecognized arguments: --pageLimit", flush=True)
         sys.exit(2)
@@ -99,10 +105,14 @@ def test_pure():
     print("pure tests ok")
 
 
-def run_fake(mode, cancel_after=None, opts=None):
-    tmp = tempfile.mkdtemp()
+_LAST = {}
+
+
+def run_fake(mode, cancel_after=None, opts=None, reuse=False):
+    tmp = _LAST["tmp"] if reuse else tempfile.mkdtemp()
+    _LAST["tmp"] = tmp
     fake_dir = os.path.join(tmp, "fake")
-    os.makedirs(fake_dir)
+    os.makedirs(fake_dir, exist_ok=True)
     exe = os.path.join(fake_dir, "docker")
     open(exe, "w").write(FAKE)
     os.chmod(exe, os.stat(exe).st_mode | stat.S_IEXEC)
@@ -110,7 +120,7 @@ def run_fake(mode, cancel_after=None, opts=None):
     os.environ["FAKE_DIR"] = fake_dir
     os.environ["FAKE_MODE"] = mode
     out_dir = os.path.join(tmp, "out")
-    os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, "site.zim")
     events, cancel = [], threading.Event()
     if cancel_after:
@@ -154,6 +164,27 @@ def test_fake_docker():
     assert any("--pageLimit" in e.get("text", "") for e in ev if e["type"] == "warn"), "no warning for dropped flag"
     print("fake docker: unknown option dropped ok")
 
+    # resume: an interrupted run keeps its work folder; the next run uses it and cleans it up when done
+    import zimit_engine as ze
+    res, ev, out, out_dir, err = run_fake("interrupt")
+    assert err and not os.path.exists(out), err
+    assert ze.unfinished(out, "https://example.com/"), "interrupted work should be kept"
+    calls = open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines()
+    assert any("--build /output/build" in c for c in calls if c.startswith("run")), calls
+    res2, ev2, out2, _, err2 = run_fake("interrupt", reuse=True)
+    assert err2 is None and res2["size"] == 700, err2
+    assert any("Continuing an earlier" in e.get("text", "") for e in ev2), "no resume notice"
+    assert not ze.unfinished(out2, "https://example.com/"), "work folder should be removed after success"
+    print("fake docker: resume after interruption ok")
+
+    # "start over" throws the kept work away
+    res, ev, out, out_dir, err = run_fake("interrupt")
+    # (second_run marker is per fake dir, so this run is interrupted again)
+    assert err and ze.unfinished(out, "https://example.com")
+    ze.discard_unfinished(out, "https://example.com")
+    assert not ze.unfinished(out, "https://example.com")
+    print("fake docker: start over discards kept work ok")
+
     res, ev, out, out_dir, err = run_fake("limit")
     assert res["limit_hit"] == "pages", res
     res, ev, out, out_dir, err = run_fake("ok", opts=Options(workers=2, max_pages=3))
@@ -168,7 +199,7 @@ def test_fake_docker():
 
     res, ev, out, out_dir, err = run_fake("slow", cancel_after=1.5)
     assert err == "Cancelled", err
-    assert os.listdir(out_dir) == [], os.listdir(out_dir)
+    assert [f for f in os.listdir(out_dir) if not f.startswith(".recon_resume_")] == [], os.listdir(out_dir)   # no ZIM, only kept work
     print("fake docker: cancel path ok")
 
 

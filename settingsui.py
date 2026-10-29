@@ -205,7 +205,7 @@ class SettingsTab(ttk.Frame):
         self._note(f, 6, "Update: run the same site again and only changed pages are downloaded again; an interrupted run "
                          "carries on where it stopped. Resume: trust the saved pages without asking the site (fastest, may be out "
                          "of date). Off: always download everything. Saved pages take disk space, about as much as the site itself. "
-                         "The Cindrix Recon engine cannot do this; it always starts over.")
+                         "The Cindrix Recon engine keeps an interrupted run in its own hidden folder next to the ZIM and offers to continue it.")
         row = ttk.Frame(f)
         row.grid(row=7, column=0, columnspan=3, sticky="w", **PAD)
         self.cache_info = tk.StringVar()

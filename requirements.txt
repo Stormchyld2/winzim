@@ -1,0 +1,3 @@
+# Only needed when building the exe. Nothing here is needed on the PC that runs WinZim.exe.
+# zstandard lets "Preview in browser" read ZIM files made by Zimit (which uses Zstandard compression).
+zstandard

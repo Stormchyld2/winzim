@@ -36,7 +36,7 @@ class Tk(W):
 asked = []
 tk = types.ModuleType("tkinter"); ttk = types.ModuleType("tkinter.ttk")
 tk.Tk, tk.Label, tk.StringVar, tk.BooleanVar = Tk, W, Var, Var
-for n in ("Frame","LabelFrame","Entry","Button","Radiobutton","Checkbutton","Spinbox","Progressbar","Notebook","Treeview","Scrollbar","Label"):
+for n in ("Frame","LabelFrame","Entry","Button","Radiobutton","Checkbutton","Spinbox","Progressbar","Combobox","Notebook","Treeview","Scrollbar","Label"):
     setattr(ttk, n, W)
 mb = types.ModuleType("tkinter.messagebox")
 mb.showerror = mb.showinfo = lambda *a, **k: None
@@ -87,4 +87,22 @@ print("stale result ignored")
 # invalid url -> idle
 a.url.set("not a url"); a.schedule_check(0)
 assert a.check_icon.opts["text"] == appmod.ICONS["idle"][0]
+# presets + remembered settings
+import tempfile, json
+os.environ["APPDATA"] = tempfile.mkdtemp()
+b = appmod.App()
+b.preset.set("Quick test (first 10 pages)"); b.apply_preset()
+assert (b.max_pages.get(), b.max_mb.get(), b.path_scope.get()) == ("10", "100", False)
+b.preset.set("This section only (the URL's folder)"); b.apply_preset()
+assert b.path_scope.get() is True and b.max_pages.get() == "1000"
+b.max_pages.set("77")                      # manual edit -> Custom
+assert b.preset.get() == appmod.CUSTOM, b.preset.get()
+b.max_pages.set("1000")                    # back to a preset's values -> that preset again
+assert b.preset.get() == "This section only (the URL's folder)", b.preset.get()
+b.folder.set("D:\\MyZims"); b.engine.set("builtin"); b.workers.set("7"); b.toggle_adv()
+b.save_settings()
+c = appmod.App()
+assert c.folder.get() == "D:\\MyZims" and c.engine.get() == "builtin" and c.workers.get() == "7" and c.adv_open
+assert c.preset.get() == "This section only (the URL's folder)"
+print("presets and remembered settings ok")
 print("ALL APP LOGIC TESTS PASSED")

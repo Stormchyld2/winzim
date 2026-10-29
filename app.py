@@ -14,9 +14,23 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
+import shutil
+
+import settings as appsettings
 from crawler import Options, convert
-from sitecheck import check_site
+from preview import find_kiwix, open_in_kiwix, preview_in_browser
+from sitecheck import check_site, estimate_size_text
 from zimit_engine import docker_status, run_zimit
+
+CUSTOM = "Custom (see Advanced)"
+PRESETS = {  # name -> (max_pages, max_mb, max_minutes, path_scope, subdomains)
+    "Whole site (up to 1000 pages)": (1000, 500, 0, False, False),
+    "This section only (the URL's folder)": (1000, 500, 0, True, False),
+    "Just this page": (1, 100, 0, False, False),
+    "Quick test (first 10 pages)": (10, 100, 0, False, False),
+    "Everything, no limits (can be huge)": (0, 0, 0, False, False),
+}
+PRESET_NAMES = list(PRESETS)
 
 ICONS = {  # level -> (symbol, colour, tooltip title)
     "idle": ("?", "#888888", "Not checked yet"),
@@ -101,14 +115,29 @@ class App(tk.Tk):
         self.docker_msg = tk.StringVar(value="Checking Docker Desktop...")
         ttk.Label(eng, textvariable=self.docker_msg, foreground="gray").pack(anchor="w", padx=28, pady=(0, 4))
 
-        opts = ttk.LabelFrame(self, text="Options")
-        opts.pack(fill="x", **pad)
         self.max_pages = tk.StringVar(value="1000")
         self.max_mb = tk.StringVar(value="500")
         self.max_minutes = tk.StringVar(value="0")
         self.workers = tk.StringVar(value="4")
         self.path_scope = tk.BooleanVar(value=False)
         self.subdomains = tk.BooleanVar(value=False)
+
+        self.presetf = ttk.Frame(self)
+        self.presetf.pack(fill="x", **pad)
+        ttk.Label(self.presetf, text="What to save:").pack(side="left")
+        self.preset = tk.StringVar(value=PRESET_NAMES[0])
+        cb = ttk.Combobox(self.presetf, textvariable=self.preset, values=PRESET_NAMES + [CUSTOM], state="readonly", width=38)
+        cb.pack(side="left", padx=6)
+        cb.bind("<<ComboboxSelected>>", lambda _e: self.apply_preset())
+        self.adv_open = False
+        self.adv_btn = ttk.Button(self.presetf, text="Advanced ▸", command=self.toggle_adv)
+        self.adv_btn.pack(side="right")
+        self._applying = False
+        for v in (self.max_pages, self.max_mb, self.max_minutes, self.path_scope, self.subdomains):
+            v.trace_add("write", lambda *_: self.mark_custom())
+
+        opts = ttk.LabelFrame(self, text="Advanced options")  # shown by the Advanced button
+        self.opts_frame = opts
         r = ttk.Frame(opts)
         r.pack(fill="x", padx=8, pady=6)
         ttk.Label(r, text="Workers (1-16):").grid(row=0, column=0, sticky="w")
@@ -132,6 +161,10 @@ class App(tk.Tk):
         self.cancel_btn = ttk.Button(bar, text="Cancel", command=self.on_cancel, state="disabled")
         self.cancel_btn.pack(side="left")
         ttk.Button(bar, text="Open folder", command=self.open_folder).pack(side="left", padx=6)
+        self.kiwix_btn = ttk.Button(bar, text="Open in Kiwix", command=self.open_kiwix, state="disabled")
+        self.kiwix_btn.pack(side="left")
+        self.preview_btn = ttk.Button(bar, text="Preview in browser", command=self.open_preview, state="disabled")
+        self.preview_btn.pack(side="left", padx=6)
         self.status = tk.StringVar(value="Ready. Enter a URL and click Convert.")
         ttk.Label(bar, textvariable=self.status).pack(side="right")
 
@@ -166,6 +199,90 @@ class App(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(100, self.pump)
         threading.Thread(target=self.check_docker, daemon=True).start()
+        self.load_settings()
+
+    # ------------------------------------------------- presets and settings
+    def apply_preset(self):
+        vals = PRESETS.get(self.preset.get())
+        if not vals:
+            return
+        self._applying = True
+        try:
+            self.max_pages.set(str(vals[0]))
+            self.max_mb.set(str(vals[1]))
+            self.max_minutes.set(str(vals[2]))
+            self.path_scope.set(vals[3])
+            self.subdomains.set(vals[4])
+        finally:
+            self._applying = False
+
+    def mark_custom(self):
+        if self._applying:
+            return
+        cur = (self.to_int(self.max_pages, -1), self.to_int(self.max_mb, -1), self.to_int(self.max_minutes, -1),
+               self.path_scope.get(), self.subdomains.get())
+        for name, vals in PRESETS.items():
+            if cur == vals:
+                self.preset.set(name)
+                return
+        self.preset.set(CUSTOM)
+
+    def toggle_adv(self):
+        self.adv_open = not self.adv_open
+        if self.adv_open:
+            self.opts_frame.pack(fill="x", padx=10, pady=4, after=self.presetf)
+            self.adv_btn.configure(text="Advanced ▾")
+        else:
+            self.opts_frame.pack_forget()
+            self.adv_btn.configure(text="Advanced ▸")
+
+    def load_settings(self):
+        s = appsettings.load()
+        if not s:
+            self.apply_preset()
+            return
+        self._applying = True
+        try:
+            if s.get("folder"):
+                self.folder.set(s["folder"])
+            if s.get("engine") in ("zimit", "builtin"):
+                self.engine.set(s["engine"])
+            self.workers.set(str(s.get("workers", self.workers.get())))
+            for key, var in (("max_pages", self.max_pages), ("max_mb", self.max_mb), ("max_minutes", self.max_minutes)):
+                if key in s:
+                    var.set(str(s[key]))
+            self.path_scope.set(bool(s.get("path_scope", False)))
+            self.subdomains.set(bool(s.get("subdomains", False)))
+        finally:
+            self._applying = False
+        if s.get("preset") in PRESETS or s.get("preset") == CUSTOM:
+            self.preset.set(s["preset"])
+        if s.get("advanced") and not self.adv_open:
+            self.toggle_adv()
+
+    def save_settings(self):
+        appsettings.save({
+            "folder": self.folder.get().strip(), "engine": self.engine.get(), "preset": self.preset.get(),
+            "workers": self.to_int(self.workers, 4), "max_pages": self.to_int(self.max_pages, 1000),
+            "max_mb": self.to_int(self.max_mb, 500), "max_minutes": self.to_int(self.max_minutes, 0),
+            "path_scope": self.path_scope.get(), "subdomains": self.subdomains.get(), "advanced": self.adv_open,
+        })
+
+    # ------------------------------------------------------ open the result
+    def open_kiwix(self):
+        if not self.out_path or not os.path.exists(self.out_path):
+            return
+        if not open_in_kiwix(self.out_path):
+            messagebox.showinfo(APP_NAME, "Kiwix doesn't seem to be installed.\n\nGet it free at https://kiwix.org, "
+                                          "or use \"Preview in browser\".")
+
+    def open_preview(self):
+        if not self.out_path or not os.path.exists(self.out_path):
+            return
+        try:
+            preview_in_browser(self.out_path)
+        except Exception as e:
+            messagebox.showerror(APP_NAME, f"Couldn't preview this file here:\n{e}\n\nTry \"Open in Kiwix\" instead.")
 
     # ---------------------------------------------------------- site check
     def normalized_url(self):
@@ -207,7 +324,10 @@ class App(tk.Tk):
         if key != self.check_key:
             return  # URL or engine changed while checking
         self.check_res = res
-        self.set_icon(res.level, res.summary + "  (click the icon for details)")
+        msg = res.summary
+        if res.pages and res.level != "bad":
+            msg += f" Sitemap: {estimate_size_text(res.pages)}."
+        self.set_icon(res.level, msg + "  (click the icon for details)")
 
     def show_check_details(self):
         r = self.check_res
@@ -289,6 +409,17 @@ class App(tk.Tk):
         out = os.path.join(folder, name)
         if os.path.exists(out) and not messagebox.askyesno(APP_NAME, f"{name} already exists. Replace it?"):
             return
+        try:
+            free_mb = shutil.disk_usage(folder).free / (1024 * 1024)
+            need_mb = (res.pages * 0.3 * 2) if (res is not None and res.pages) else 0  # temp files + ZIM
+            if free_mb < max(1024, need_mb) and not messagebox.askyesno(
+                    APP_NAME, f"Only {free_mb / 1024:.1f} GB is free on that drive"
+                              + (f", and this site may need about {need_mb / 1024:.1f} GB or more" if need_mb > 1024 else "")
+                              + ".\n\nContinue anyway?", icon="warning"):
+                return
+        except OSError:
+            pass
+        self.save_settings()
 
         opts = Options(
             max_pages=self.to_int(self.max_pages, 1000),
@@ -303,6 +434,8 @@ class App(tk.Tk):
         self.running = True
         self.convert_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
+        self.kiwix_btn.configure(state="disabled")
+        self.preview_btn.configure(state="disabled")
         self.tree.delete(*self.tree.get_children())
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
@@ -394,6 +527,8 @@ class App(tk.Tk):
         if failed:
             detail += f", {failed} failed"
         self.result.set(f"Saved: {out}   ({detail})")
+        self.kiwix_btn.configure(state="normal")
+        self.preview_btn.configure(state="normal")
         if messagebox.askyesno(APP_NAME, f"ZIM file created:\n{out}\n\nShow it in its folder?"):
             self.open_folder()
 
@@ -412,6 +547,7 @@ class App(tk.Tk):
             if not messagebox.askyesno(APP_NAME, "A conversion is running. Cancel it and quit?"):
                 return
             self.cancel.set()
+        self.save_settings()
         self.destroy()
 
 

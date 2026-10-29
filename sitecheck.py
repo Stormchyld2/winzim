@@ -38,6 +38,47 @@ class CheckResult:
     level: str
     summary: str
     details: list = field(default_factory=list)
+    pages: int = None        # pages listed in the site's sitemap (None = unknown)
+
+
+def estimate_size_text(pages):
+    """Rough size range text for a page count (text-heavy pages ~0.3 MB, image-heavy ~2 MB incl. assets)."""
+    lo, hi = pages * 0.3, pages * 2.0
+
+    def fmt(mb):
+        return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{max(1, round(mb))} MB"
+    return f"about {pages:,} pages, roughly {fmt(lo)} to {fmt(hi)}"
+
+
+def count_sitemap_pages(origin, robots_text, ua, max_fetches=10):
+    """Count <loc> URLs in the site's sitemap(s). Returns an int or None if no sitemap was found."""
+    urls = [m.group(1).strip() for m in re.finditer(r"(?im)^\s*sitemap:\s*(\S+)", robots_text or "")]
+    if not urls:
+        urls = [origin + "/sitemap.xml"]
+    fetched, total, found = 0, 0, False
+    queue_ = list(urls[:3])
+    while queue_ and fetched < max_fetches:
+        u = queue_.pop(0)
+        fetched += 1
+        try:
+            st, _, _, raw = _get(u, ua, 8, 3_000_000)
+        except Exception:
+            continue
+        if st != 200:
+            continue
+        if raw[:2] == b"\x1f\x8b":
+            try:
+                raw = gzip.decompress(raw)
+            except Exception:
+                continue
+        txt = raw.decode("utf-8", "replace")
+        locs = re.findall(r"(?is)<loc>\s*(.*?)\s*</loc>", txt)
+        if "<sitemapindex" in txt.lower():
+            queue_.extend(locs[: max(0, max_fetches - fetched)])
+        elif locs:
+            found = True
+            total += len(locs)
+    return total if found else None
 
 
 def _visible_text(page):
@@ -178,19 +219,31 @@ def check_site(url, engine="zimit", timeout=15):
     findings = analyze(url, status, final, headers, body, engine)
 
     # robots.txt (informational)
+    robots_text, origin = "", ""
     try:
         p = urlsplit(final or url)
-        rs, _, _, rraw = _get(f"{p.scheme}://{p.netloc}/robots.txt", ua, 8, 100_000)
-        if rs == 200 and parse_robots_blocks_all(rraw.decode("utf-8", "replace")):
-            findings.append(("warn", "robots.txt asks automated tools not to crawl this site."))
+        origin = f"{p.scheme}://{p.netloc}"
+        rs, _, _, rraw = _get(origin + "/robots.txt", ua, 8, 100_000)
+        if rs == 200:
+            robots_text = rraw.decode("utf-8", "replace")
+            if parse_robots_blocks_all(robots_text):
+                findings.append(("warn", "robots.txt asks automated tools not to crawl this site."))
     except Exception:
         pass
+
+    worst = max(findings, key=lambda x: LEVEL_RANK[x[0]])[0] if findings else "ok"
+    pages = None
+    if worst != "bad" and origin:  # size estimate is pointless if the site will fail anyway
+        try:
+            pages = count_sitemap_pages(origin, robots_text, ua)
+        except Exception:
+            pages = None
+    est = [f"The site's sitemap lists {estimate_size_text(pages)}."] if pages else []
 
     if not any(l in ("warn", "bad") for l, _ in findings):
         links = len(re.findall(r"(?i)<a\s[^>]*href=", body))
         extra = [t for l, t in findings if l == "ok"]
         return CheckResult("ok", "Looks good: the page loads without a login and no blocking was detected.",
-                           [f"HTTP {status}, about {links} links found on the first page."] + extra)
-    worst = max(findings, key=lambda x: LEVEL_RANK[x[0]])[0]
+                           [f"HTTP {status}, about {links} links found on the first page."] + extra + est, pages)
     first = next(t for l, t in findings if l == worst)
-    return CheckResult(worst, first, [t for _, t in findings])
+    return CheckResult(worst, first, [t for _, t in findings] + est, pages)

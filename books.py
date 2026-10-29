@@ -26,9 +26,12 @@ from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from urllib.parse import quote, urldefrag, urljoin, urlsplit
 
+from appinfo import CONTACT, REPO
 from crawler import decode_bytes, normalize, to_ascii
 
-UA = "CindrixRecon/1.2 (+https://github.com/Stormchyld2/winzim)"
+UA = f"CindrixRecon/1.3 (+{REPO})"   # used when looking through any website: no contact address
+# The book catalogs (Open Library, Internet Archive, ...) ask API users to say who they are, so only they get the address.
+CATALOG_UA = f"CindrixRecon/1.3 (+{REPO}; {CONTACT})"
 
 BOOK_EXTS = {"pdf": "PDF", "epub": "EPUB", "mobi": "MOBI", "azw3": "AZW3", "azw": "AZW3", "djvu": "DJVU",
              "djv": "DJVU", "cbz": "CBZ", "cbr": "CBR", "txt": "TXT", "fb2": "FB2", "rtf": "RTF", "lit": "LIT"}
@@ -152,7 +155,7 @@ def http_get(url, timeout=15, limit=3_000_000, headers=None):
 
 
 def get_json(url, timeout=15):
-    st, _, _, body = http_get(url, timeout, 5_000_000, {"Accept": "application/json"})
+    st, _, _, body = http_get(url, timeout, 5_000_000, {"Accept": "application/json", "User-Agent": CATALOG_UA})
     if st != 200:
         raise RuntimeError(f"HTTP {st}" if st else body.decode("utf-8", "replace")[:100])
     return json.loads(body.decode("utf-8", "replace"))

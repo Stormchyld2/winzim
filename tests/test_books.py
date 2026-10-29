@@ -82,6 +82,7 @@ FILES = {
     "/gut/files/walden.txt": ("text/plain; charset=utf-8", b"Walden by Thoreau. " * 3000),
 }
 hits_log = []
+uas = {}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -102,6 +103,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         u = urllib.parse.urlsplit(self.path)
         p, q = u.path, urllib.parse.parse_qs(u.query)
         hits_log.append(self.path)
+        uas[p] = self.headers.get("User-Agent", "")
         j = lambda obj, code=200: self.send(code, "application/json", json.dumps(obj).encode())  # noqa: E731
         if p == "/":
             return self.send(200, "text/html", INDEX)
@@ -297,6 +299,8 @@ def main():
     assert any(e["type"] == "catalog" and e["name"] == "OAPEN" and not e["ok"] for e in ev), "a failing catalog must not break the rest"
     pdf_pref = books.finalize(c, "PDF")
     assert pdf_pref["best"]["fmt"] == "PDF"
+    assert "cindrixops@proton.me" in uas["/ol/search.json"] and "cindrixops@proton.me" in uas["/gut/books/"], uas
+    assert "proton.me" not in uas["/"] and "proton.me" not in uas["/books/survival.pdf"], "no contact address when visiting ordinary sites"
     print("lookup (free book) ok:", c["badge"], "-", c["best"]["source"], c["best"]["fmt"])
 
     cards = books.lookup("modern homestead handbook")

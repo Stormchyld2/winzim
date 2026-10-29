@@ -124,6 +124,13 @@ Dark / Light switch (top right, remembered).
 | `settings.py` | Remembered settings |
 | `build.bat`, `.github/workflows/build.yml` | Building the exe (`installer.iss` is saved for later, unused) |
 
+## Contact
+Cindrix products: **cindrixops@proton.me** (also shown in the app, bottom bar and **About**).
+
+When Recon talks to the book catalogs (Open Library, Internet Archive and the like, which ask API users to identify
+themselves) it includes this address in its request. It is **not** sent to ordinary websites you point Recon at, and it
+is **not** written into ZIM files.
+
 ## Tests
 Run from the repo root (they also run in the GitHub build):
 - `python tests/test_local.py`: local site -> Built-in engine -> ZIM, validated by an independent reader (`tests/verify_zim.py`).

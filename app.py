@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
 import settings as appsettings
+from appinfo import CONTACT, VERSION
 from bookui import BookTab
 from crawler import Options, convert
 from preview import find_kiwix, open_in_kiwix, preview_in_browser
@@ -112,6 +113,12 @@ class App(tk.Tk):
         self.banner.pack(fill="x")
         self.banner.bind("<Configure>", lambda _e: self.draw_banner())
 
+        self.footer = tk.Frame(self)
+        self.footer.pack(side="bottom", fill="x")
+        self.footer_label = tk.Label(self.footer, text=f"{APP_NAME} {VERSION}   ·   {CONTACT}   ·   About", anchor="w",
+                                     font=("Segoe UI", 9), cursor="hand2")
+        self.footer_label.pack(side="left", padx=10, pady=3)
+        self.footer_label.bind("<Button-1>", lambda _e: self.show_about())
         self.main_nb = ttk.Notebook(self, style="Main.TNotebook")
         self.main_nb.pack(fill="both", expand=True)
         zt = ttk.Frame(self.main_nb)
@@ -382,10 +389,19 @@ class App(tk.Tk):
             except Exception:
                 pass
         self.check_icon.configure(bg=p["bg"])
+        self.footer.configure(bg=p["banner"])
+        self.footer_label.configure(bg=p["banner"], fg=p["muted"])
         self.set_icon(self.icon_level, self.icon_msg)
         self.books.apply_theme(p)
         self.draw_banner()
         self.dark_titlebar(self.dark)
+
+    def show_about(self):
+        messagebox.showinfo(
+            f"About {APP_NAME}",
+            f"{APP_NAME} {VERSION}\n\nA Cindrix tool for collecting what you'll need before you need it: websites saved as "
+            f"offline ZIM files, and books found and downloaded from public libraries.\n\nContact: {CONTACT}\n\n"
+            "Only copy sites and books you have the right to copy. It does not log in to anything or get around paywalls.")
 
     def toggle_theme(self):
         self.apply_theme(not self.dark)

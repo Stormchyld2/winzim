@@ -198,4 +198,12 @@ h.run_notes = []
 h.on_done("x.zim", 1000, 50, 10, 0, "time", True, 0)
 assert "time limit" in h.result.get() and "Depth setting" in h.result.get()
 print("limit warning ok")
+
+# --- footer / about
+assert "cindrixops@proton.me" in h.footer_label.opts["text"] and "About" in h.footer_label.opts["text"]
+shown = []
+appmod.messagebox.showinfo = lambda *a, **k: shown.append(a)
+h.show_about()
+assert "cindrixops@proton.me" in shown[-1][1] and "Cindrix Recon" in shown[-1][0]
+print("about/footer ok")
 print("ALL APP LOGIC TESTS PASSED")

@@ -17,7 +17,7 @@ ABOUT = ("Starter list, reviewed 2026-10-29. The sites and books are real, but w
          "(the Approve box in the program). Edit freely.")
 
 SITES = [
-    ("Ready.gov (US emergency preparedness)", "https://www.ready.gov/", "whole", "lite", "Official preparedness guides from FEMA. US government material is generally free to copy; some photos may not be."),
+    ("Ready.gov (US emergency preparedness)", "https://www.ready.gov/", "whole", "lite", "Official preparedness guides from FEMA. US government material is generally free to copy; some photos may not be. The site blocks automated visitors (bot check): the quick check may say access denied, and the crawl may fail."),
     ("CDC emergency preparedness", "https://emergency.cdc.gov/", "whole", "lite", "Health and safety guidance in disasters."),
     ("Red Cross: how to prepare", "https://www.redcross.org/get-help/how-to-prepare-for-emergencies.html", "section", "lite",
      "Checklists and guides; the Red Cross site is large, so this takes only the preparedness section."),

@@ -26,6 +26,10 @@ jobs:
           python tests/test_bookzim.py
           python tests/test_zimlibrary.py
           python tests/test_settings_logic.py
+          python tests/test_cache.py
+          python tests/test_drivereport.py
+          python tests/test_jobqueue.py
+          python tests/test_starterlib.py
           python tests/test_app_logic.py
           python tests/test_bookui_logic.py
       - name: Build exe

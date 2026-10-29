@@ -103,6 +103,13 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
 - **Books to ZIM:** default library name, biggest single file, readers on/off, and the optional helper programs (DjVuLibre for DJVU, 7-Zip for RAR comics, Calibre for LIT). They are found automatically if installed.
 - **ZIM library:** take the books back **out** of a ZIM made by Books to ZIM, for rebuilding it with more books. Pick the ZIM, and every row has a Download button. Turn on *Select several books at once* to get checkboxes plus Select all, Download selected and Download all. Files land in category subfolders with a restored `library_manifest.csv`, so the folder can go straight back into Books to ZIM.
 
+## Queue, drive report, starter library, resume
+
+- **Queue tab:** *Add to queue* (Sites tab, Books tab, Books to ZIM, ZIM library) puts a job in a list that runs one after another once you click *Start queue*. Jobs are saved, so closing the program does not lose them; one that was running when the program closed shows as *Interrupted* and can be retried. You can move jobs up or down, remove, retry, cancel the current one, or pause after it. Job types: site to ZIM, books from a library site, find one book, books to ZIM, and books out of a ZIM.
+- **Drive report** (Books tab): pick a folder or drive and get `drive_report.html` and `drive_report.csv` in it. It lists your ZIMs and books, checks every ZIM's checksum, flags book files that are really web pages or cut short, books listed in `library_manifest.csv` that are gone, duplicates, free space, and recent failed queue jobs.
+- **Starter library** (Sites and Books tabs): a draft list of preparedness sites and books to look up. **Nothing in it is checked.** Each entry stays unusable until you approve it (the box in the first column) after looking at it yourself. It is a plain file, `starter_library.json`, beside your settings; edit it freely. *Use* only fills in the Sites or Books tab; it never starts anything.
+- **Resume and update (built-in engine):** pages are saved in a cache as they are fetched. *Update* (the default) asks the site what changed and re-downloads only that; an interrupted run carries on where it stopped. *Resume* trusts saved pages without asking (fastest). Change it, see its size, or clear it under Settings > Sites. Saved pages take about as much disk space as the site. The Zimit engine cannot do this; it always starts over.
+
 ## Getting Cindrix Recon
 **No Python needed:** on GitHub open the **Actions** tab, run **Build CindrixRecon** (or open the latest run) and
 download the `CindrixRecon-exe` artifact: `CindrixRecon.exe`, a single portable file. (An installer will be added
@@ -135,6 +142,7 @@ Dark / Light switch (top right, remembered).
 |---|---|
 | `app.py` | The window and the Sites tab |
 | `bookui.py`, `books.py` | Books tab window; book finding, link testing, catalog lookup, downloading |
+| `jobqueue.py`, `queueui.py`, `drivereport.py`, `starterlib.py`, `starterui.py`, `crawlcache.py` | Queue, drive report, starter library, saved pages |
 | `settingsui.py`, `prefs.py`, `jobs.py`, `zimlibrary.py` | Settings tab, program settings, the download queue, taking books out of a ZIM |
 | `bookzim.py`, `bookread.py`, `flame.py` | Books -> ZIM: catalog website builder, e-book converters for the in-ZIM reader, the flame logo shape |
 | `zimit_engine.py` | Runs Zimit via Docker, parses its progress |
@@ -161,4 +169,5 @@ Run from the repo root (they also run in the GitHub build):
 - `python tests/test_books.py`: site book finder, OPDS, link testing, PDF page counts, downloads, manifest, catalog lookup and ranking, using a fake book site and fake catalogs on localhost.
 - `python tests/test_bookzim.py`: the books ZIM, every reader format, filters data and links.
 - `python tests/test_zimlibrary.py`, `python tests/test_settings_logic.py`: taking books out of a ZIM (parallel, queued), the Settings tab.
+- `python tests/test_cache.py`, `python tests/test_drivereport.py`, `python tests/test_jobqueue.py`, `python tests/test_starterlib.py`: resume/update, the drive report, the queue, the starter list.
 - `python tests/test_app_logic.py`, `python tests/test_bookui_logic.py`: window logic using a stub tkinter (draws no real window).

@@ -24,6 +24,8 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
+import prefs
+from crawlcache import PageCache
 from zimwriter import ZimWriter
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CindrixRecon/1.2"
@@ -128,6 +130,8 @@ class Options:
     no_scripts: bool = False       # drop JavaScript (built-in engine)
     max_file_mb: int = 0           # skip any single file larger than this (0 = no limit)
     depth: int = 0                 # clicks from the start page (0 = no limit)
+    cache_dir: str = ""             # where saved pages live (built-in engine)
+    cache_mode: str = "off"        # off | resume (trust saved pages) | update (check what changed)
 
 
 # ---------------------------------------------------------------- URL utils
@@ -368,7 +372,9 @@ class Crawler:
         host = sp.hostname or ""
         self.start_host = host[4:] if host.startswith("www.") else host
         self.start_dir = sp.path if sp.path.endswith("/") else sp.path.rsplit("/", 1)[0] + "/"
-        self.opener = urllib.request.build_opener()
+        self.opener = urllib.request.build_opener(prefs.proxy_handler())
+        self.cache = PageCache(options.cache_dir, self.start) if options.cache_mode != "off" and options.cache_dir else None
+        self.cache_hits = 0
 
     def emit(self, **kw):
         kw.setdefault("pages", self.pages)
@@ -389,6 +395,48 @@ class Crawler:
             return False
         return True
 
+    def _fetch(self, url):
+        """Get one file: from the saved copy when allowed, else from the site (asking only what changed when we can)."""
+        cached = self.cache.get(url) if self.cache else None
+        if cached and self.o.cache_mode == "resume":
+            self.cache_hits += 1
+            return {"data": cached[1], "final": cached[0]["final"], "ctype": cached[0]["ctype"]}
+        headers = {"User-Agent": UA, "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9",
+                   "Accept-Encoding": "gzip, deflate"}
+        if cached:
+            if cached[0].get("etag"):
+                headers["If-None-Match"] = cached[0]["etag"]
+            if cached[0].get("lm"):
+                headers["If-Modified-Since"] = cached[0]["lm"]
+        req = urllib.request.Request(to_ascii(url), headers=headers)
+        try:
+            with self.opener.open(req, timeout=30) as r:
+                final = normalize(r.geturl())
+                cap = MAX_RESOURCE
+                if self.o.max_file_mb:
+                    cap = min(cap, self.o.max_file_mb * 1024 * 1024)
+                data = r.read(cap + 1)
+                if len(data) > cap:
+                    return {"toolarge": True, "final": final}
+                enc = (r.headers.get("Content-Encoding") or "").lower()
+                if enc == "gzip":
+                    data = gzip.decompress(data)
+                elif enc == "deflate":
+                    try:
+                        data = zlib.decompress(data)
+                    except zlib.error:
+                        data = zlib.decompress(data, -15)
+                ctype = r.headers.get("Content-Type", "") or ""
+                etag, lm = r.headers.get("ETag"), r.headers.get("Last-Modified")
+        except urllib.error.HTTPError as e:
+            if e.code == 304 and cached:
+                self.cache_hits += 1
+                return {"data": cached[1], "final": cached[0]["final"], "ctype": cached[0]["ctype"]}
+            raise
+        if self.cache:
+            self.cache.put(url, {"final": final, "ctype": ctype, "etag": etag, "lm": lm}, data)
+        return {"data": data, "final": final, "ctype": ctype}
+
     # -- worker (runs in thread)
     def _work(self, url, kind, n):
         if self.cancel.is_set():
@@ -398,29 +446,14 @@ class Crawler:
         last = "error"
         for attempt in range(3):
             try:
-                req = urllib.request.Request(to_ascii(url), headers={
-                    "User-Agent": UA, "Accept": "*/*", "Accept-Language": "en-US,en;q=0.9",
-                    "Accept-Encoding": "gzip, deflate"})
-                with self.opener.open(req, timeout=30) as r:
-                    final = normalize(r.geturl())
-                    cap = MAX_RESOURCE
-                    if self.o.max_file_mb:
-                        cap = min(cap, self.o.max_file_mb * 1024 * 1024)
-                    data = r.read(cap + 1)
-                    if len(data) > cap:
-                        return {"url": url, "kind": kind, "ok": False, "error": "too large", "skip": True, "final": final}
-                    enc = (r.headers.get("Content-Encoding") or "").lower()
-                    if enc == "gzip":
-                        data = gzip.decompress(data)
-                    elif enc == "deflate":
-                        try:
-                            data = zlib.decompress(data)
-                        except zlib.error:
-                            data = zlib.decompress(data, -15)
-                    ctype = r.headers.get("Content-Type", "") or ""
-                    mime = ctype.split(";")[0].strip().lower()
-                    cm = re.search(r"charset=([-\w]+)", ctype, re.I)
-                    charset = cm.group(1) if cm else None
+                got = self._fetch(url)
+                final = got["final"]
+                if got.get("toolarge"):
+                    return {"url": url, "kind": kind, "ok": False, "error": "too large", "skip": True, "final": final}
+                data, ctype = got["data"], got["ctype"]
+                mime = ctype.split(";")[0].strip().lower()
+                cm = re.search(r"charset=([-\w]+)", ctype, re.I)
+                charset = cm.group(1) if cm else None
                 if not mime or mime == "application/octet-stream":
                     mime = mimetypes.guess_type(urlsplit(final).path)[0] or "application/octet-stream"
                 cat = category_of_mime(mime) or category_of_url(final)
@@ -641,6 +674,8 @@ def convert(url, out_path, options, on_event=None, cancel=None):
         c.crawl()
         if c.cancel.is_set():
             raise RuntimeError("Cancelled")
+        if c.cache_hits:
+            c.emit(type="phase", text=f"Reused {c.cache_hits} saved pages from an earlier run.")
         c.emit(type="phase", text="Building ZIM file...")
         size = c.build(out_path)
         return size, c

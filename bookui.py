@@ -1,16 +1,15 @@
 """The Book Finder tab (all the window code for it; the logic is in books.py)."""
 import copy
 import os
+import pathlib
 import subprocess
 import threading
-import time
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from urllib.parse import urlsplit
 
 import books
-import jobs
 import prefs
 from books import DEFAULT_FORMATS, FORMAT_ORDER, human_size
 from sitecheck import check_site
@@ -187,6 +186,9 @@ class BookTab(ttk.Frame):
         ttk.Button(bar, text="Open folder", command=self.open_folder).pack(side="left", padx=6)
         self.zim_btn = ttk.Button(bar, text="Books \u2192 ZIM", command=self.make_zim)
         self.zim_btn.pack(side="left")
+        ttk.Button(bar, text="Add to queue", command=self.queue_job).pack(side="left", padx=6)
+        ttk.Button(bar, text="Drive report", command=self.make_report).pack(side="left")
+        ttk.Button(bar, text="Starter library", command=self.app.open_starter).pack(side="left", padx=6)
         self.status = tk.StringVar(value="Enter a library address and click Find books.")
         ttk.Label(bar, textvariable=self.status, style="Amber.TLabel").pack(side="right")
         self.progress = ttk.Progressbar(self, mode="indeterminate")
@@ -473,6 +475,8 @@ class BookTab(ttk.Frame):
             self.status.set(e["text"])
         elif t == "build":
             self.status.set(f"Packing the books: {e['done']} of {e['total']}")
+        elif t == "report_done":
+            self._report_done(e)
         elif t == "zim_done":
             self._zim_done(e)
         elif t == "dl_progress":
@@ -621,6 +625,73 @@ class BookTab(ttk.Frame):
             return
         self.start_download(items)
 
+    # ------------------------------------------------------------ queue and drive report
+    def queue_job(self):
+        """Put what is typed in the current mode into the job queue."""
+        folder = self.folder.get().strip()
+        if not folder:
+            self.browse()
+            folder = self.folder.get().strip()
+            if not folder:
+                return
+        if self.mode.get() == "site":
+            url = self.normalized_url()
+            fmts = [f for f, v in self.fmt_vars.items() if v.get()]
+            if not url or not fmts:
+                messagebox.showerror("Book Finder", "Enter a full website address and tick at least one format first.")
+                return
+            job, waiting = self.app.queue_tab.add("books_site", {"url": url, "folder": folder, "formats": fmts,
+                                                                  "pref": self.pref.get(), "max_pages": max(1, self.to_int(self.max_pages, 300))})
+        else:
+            q = self.query.get().strip()
+            if not q:
+                messagebox.showerror("Book Finder", "Type a title or author first.")
+                return
+            job, waiting = self.app.queue_tab.add("books_find", {"query": q, "folder": folder, "pref": self.pref.get()})
+        self.status.set(f"Added to the queue ({waiting} waiting). Open the Queue tab to start it.")
+
+    def make_report(self):
+        if self.running:
+            return
+        d = filedialog.askdirectory(initialdir=self.folder.get() or None, title="Which folder or drive should the report cover?")
+        if not d:
+            return
+        d = os.path.normpath(d)
+        self.cancel = threading.Event()
+        self.busy_ui(True, "Looking at the files...")
+
+        def work():
+            try:
+                import drivereport
+                rep = drivereport.scan(d, self.cancel, self.emit, True, self.app.queue_tab.q.failures())
+                hp, cp = drivereport.write_reports(rep, d)
+                self.emit({"type": "report_done", "html": hp, "csv": cp, "summary": drivereport.summary(rep),
+                           "issues": [t for _, t in rep["issues"]][:6]})
+            except RuntimeError as e:
+                if str(e) == "Cancelled":
+                    self.emit({"type": "report_done", "html": None})
+                else:
+                    self.emit({"type": "error", "text": str(e)})
+            except Exception as e:
+                self.emit({"type": "error", "text": f"Could not make the report: {e}"})
+        threading.Thread(target=work, daemon=True).start()
+
+    def _report_done(self, e):
+        self.busy_ui(False, "done")
+        if not e["html"]:
+            self.status.set("Cancelled.")
+            return
+        s = e["summary"]
+        self.status.set(f"Report saved: {s['zims']} ZIMs, {s['books']} books, {s['bad']} problems.")
+        self.last_file = e["html"]
+        msg = (f"{s['zims']} ZIM files ({human_size(s['zim_size'])}) and {s['books']} books ({human_size(s['book_size'])}).\n"
+               f"{s['bad']} problems, {s['warn']} warnings.")
+        if e["issues"]:
+            msg += "\n\n" + "\n".join("- " + t[:90] for t in e["issues"])
+        msg += "\n\nOpen the full report now?"
+        if messagebox.askyesno("Drive report", msg):
+            webbrowser.open(pathlib.Path(e["html"]).resolve().as_uri())
+
     # ------------------------------------------------------------ books -> ZIM
     def make_zim(self):
         if self.running:
@@ -636,6 +707,14 @@ class BookTab(ttk.Frame):
         out = filedialog.asksaveasfilename(title="Save the ZIM file as", defaultextension=".zim", initialfile="recon-library.zim",
                                            initialdir=folder, filetypes=[("ZIM file", "*.zim")])
         if not out:
+            return
+        choice = messagebox.askyesnocancel("Books to ZIM", "Build it now?\n\nYes = build now\nNo = add it to the queue and build later\nCancel = go back")
+        if choice is None:
+            return
+        if choice is False:
+            job, waiting = self.app.queue_tab.add("books_zim", {"folder": folder, "out": os.path.normpath(out), "name": name.strip(),
+                                                                "max_file_mb": prefs.get("zim_max_file_mb")})
+            self.status.set(f"Added to the queue ({waiting} waiting). Open the Queue tab to start it.")
             return
         self.cancel = threading.Event()
         self.busy_ui(True, "Reading the books...")
@@ -695,7 +774,6 @@ class BookTab(ttk.Frame):
 
     def _dl_worker(self, items, folder):
         """Download several books at once (Settings > Downloads, up to 6); the rest wait in line and start as others finish."""
-        retries, cap = prefs.get("retries"), prefs.get("skip_over_mb")
         counts = {"done": 0, "running": 0}
         lock = threading.Lock()
         pcts = {}
@@ -707,30 +785,11 @@ class BookTab(ttk.Frame):
                      "title": title, "pct": avg}
             self.emit(e)
 
-        def one(i, it):
-            if cap and it.get("size") and it["size"] > cap * 1024 * 1024:
-                raise RuntimeError(f"Bigger than your {cap} MB limit (Settings > Downloads).")
-
-            def prog(done, total):
-                pct = int(done * 100 / total) if total else 0
-                if pct - pcts.get(i, -10) >= 4 or pct == 100:
-                    pcts[i] = pct
-                    tell(it["title"])
-            for attempt in range(retries + 1):
-                try:
-                    path = books.download_file(it["url"], folder, it["title"], it["fmt"], prog, self.cancel)
-                    break
-                except RuntimeError as e:
-                    if str(e) == "Cancelled" or attempt == retries or "web page" in str(e):
-                        raise
-                    pcts.pop(i, None)
-                    time.sleep(1.5 * (attempt + 1))
-            if prefs.get("log_manifest"):
-                books.add_to_manifest(folder, {"title": it["title"], "author": it.get("author") or "", "year": it.get("year") or "",
-                                               "format": it["fmt"], "size_bytes": os.path.getsize(path),
-                                               "source": it.get("source", ""), "public_domain": it.get("public_domain", ""),
-                                               "url": it["url"], "file": path})
-            return path
+        def on_prog(i, done, total):
+            pct = int(done * 100 / total) if total else 0
+            if pct - pcts.get(i, -10) >= 4 or pct == 100:
+                pcts[i] = pct
+                tell(items[i]["title"])
 
         def on_state(i, state, info):
             with lock:
@@ -742,9 +801,8 @@ class BookTab(ttk.Frame):
                     counts["done"] += 1
                     pcts.pop(i, None)
             tell(items[i]["title"])
-        res = jobs.run_jobs(items, one, prefs.get("downloads_at_once"), self.cancel, on_state)
-        paths = [info for st, info in res if st == "done"]
-        errors = [(items[i]["title"], info) for i, (st, info) in enumerate(res) if st == "failed"]
+        paths, errors = books.download_many(items, folder, self.cancel, prefs.get("downloads_at_once"), prefs.get("retries"),
+                                            prefs.get("skip_over_mb"), prefs.get("log_manifest"), on_state, on_prog)
         self.emit({"type": "dl_done", "paths": paths, "errors": errors, "cancelled": self.cancel.is_set()})
 
     # ------------------------------------------------------------ lookup mode cards

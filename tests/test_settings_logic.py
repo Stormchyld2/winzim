@@ -161,6 +161,39 @@ try:
     open(os.path.join(root, "bad.zim"), "wb").write(b"nope")
     L.zim.set(os.path.join(root, "bad.zim")); L.load(); seen = pump("lib_error")
     check("bad zim reported", "lib_error" in seen)
+
+    # ---- queue buttons and drive report on the other tabs
+    import tkinter, bookui
+    qt = a.queue_tab
+    n0 = len(qt.q.jobs)
+    a.url.set("https://example.org/docs"); a.folder.set(os.path.join(root, "zims")); a.queue_site()
+    j = qt.q.jobs[-1]
+    check("Sites: Add to queue", len(qt.q.jobs) == n0 + 1 and j["kind"] == "site" and j["params"]["out"].endswith(".zim")
+          and j["params"]["opts"]["workers"] >= 1 and j["params"]["engine"] in ("zimit", "builtin"), j)
+    b = a.books
+    b.mode.set("site"); b.url.set("http://lib.example.org/books"); b.folder.set(os.path.join(root, "bk")); b.queue_job()
+    check("Books site: Add to queue", qt.q.jobs[-1]["kind"] == "books_site" and qt.q.jobs[-1]["params"]["url"].startswith("http://lib.example.org"), qt.q.jobs[-1])
+    b.mode.set("lookup"); b.query.set("walden"); b.queue_job()
+    check("Books lookup: Add to queue", qt.q.jobs[-1]["kind"] == "books_find" and qt.q.jobs[-1]["params"]["query"] == "walden")
+    qt.refresh()
+    check("queue tab lists the jobs", len(qt.tree.rows) == len(qt.q.jobs) and "Waiting" in list(qt.tree.rows.values())[0][1])
+    L.zim.set(zim); L.folder.set(os.path.join(root, "back")); L.queue_all()
+    check("ZIM library: Add all to queue", qt.q.jobs[-1]["kind"] == "extract")
+    bookui.filedialog.askdirectory = lambda **k: lib
+    asked2 = []
+    bookui.messagebox.askyesno = lambda *a, **k: asked2.append(a[1]) or False
+    b.running = False
+    b.make_report()
+    t0 = time.time(); got = None
+    while time.time() - t0 < 20 and got is None:
+        try: k, v = a.q.get(timeout=0.3)
+        except Exception: continue
+        if k == "book":
+            if v.get("type") == "report_done": got = v
+            b.on_event(v)
+    check("Drive report runs", got and got["html"] and os.path.exists(got["html"]) and got["summary"]["books"] == 9, got)
+    check("report summary shown", asked2 and "ZIM files" in asked2[0] and "Open the full report" in asked2[0], asked2)
+    check("button is free again", b.running is False and "Report saved" in b.status.get(), b.status.get())
 finally:
     shutil.rmtree(root, ignore_errors=True)
 print("\n%s" % ("ALL PASSED" if not fails else "FAILED: " + ", ".join(fails)))

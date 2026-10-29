@@ -15,11 +15,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
+import crawlcache
 import flame
 import prefs
 import settings as appsettings
 from appinfo import CONTACT, VERSION
 from bookui import BookTab
+from queueui import QueueTab
+from starterui import StarterDialog
 from settingsui import SettingsTab
 from crawler import Options, convert
 from preview import find_kiwix, open_in_kiwix, preview_in_browser
@@ -264,6 +267,8 @@ class App(tk.Tk):
         self.kiwix_btn.pack(side="left")
         self.preview_btn = ttk.Button(bar, text="Preview in browser", command=self.open_preview, state="disabled")
         self.preview_btn.pack(side="left", padx=6)
+        ttk.Button(bar, text="Add to queue", command=self.queue_site).pack(side="left")
+        ttk.Button(bar, text="Starter library", command=self.open_starter).pack(side="left", padx=6)
         self.status = tk.StringVar(value="Ready. Enter a URL and click Convert.")
         self.status_label = ttk.Label(bar, textvariable=self.status, style="Amber.TLabel")
         self.status_label.pack(side="right")
@@ -297,6 +302,8 @@ class App(tk.Tk):
 
         self.books = BookTab(self.main_nb, self, ICONS)
         self.main_nb.add(self.books, text="Books")
+        self.queue_tab = QueueTab(self.main_nb, self)
+        self.main_nb.add(self.queue_tab, text="Queue")
         self.settings = SettingsTab(self.main_nb, self)
         self.main_nb.add(self.settings, text="Settings")
 
@@ -403,6 +410,8 @@ class App(tk.Tk):
         self.footer_label.configure(bg=p["banner"], fg=p["muted"])
         self.set_icon(self.icon_level, self.icon_msg)
         self.books.apply_theme(p)
+        if hasattr(self, "queue_tab"):
+            self.queue_tab.apply_theme(p)
         self.draw_banner()
         self.dark_titlebar(self.dark)
 
@@ -469,6 +478,81 @@ class App(tk.Tk):
         c.create_oval(ox, 19, ox + 10, 29, fill=col, outline=col)
 
     # ------------------------------------------------- presets and settings
+    def make_options(self):
+        """The crawl settings as they are on the Sites tab right now."""
+        return Options(
+            max_pages=self.to_int(self.max_pages, 20000),
+            max_mb=self.to_int(self.max_mb, 0),
+            max_minutes=self.to_int(self.max_minutes, 0),
+            workers=min(16, max(1, self.to_int(self.workers, 4))),
+            delay=prefs.get("site_pause_ms") / 1000.0,
+            cache_dir=crawlcache.default_root(), cache_mode=prefs.get("cache_mode"),
+            path_scope=self.path_scope.get(),
+            subdomains=self.subdomains.get(),
+            skip_images=self.dv["skip_images"].get(), skip_media=self.dv["skip_media"].get(),
+            skip_fonts=self.dv["skip_fonts"].get(), skip_docs=self.dv["skip_docs"].get(),
+            shrink_images=self.dv["shrink_images"].get(), no_scripts=self.dv["no_scripts"].get(),
+            max_file_mb=self.to_int(self.max_file_mb, 0), depth=self.to_int(self.depth, 0),
+        )
+
+    PRESET_KEYS = {"whole": WHOLE, "section": "This section only (the URL's folder)", "page": "Just this page"}
+    DETAIL_KEYS = {"full": "Full (everything)", "lite": "Lite (smaller pictures, no video)",
+                   "text": "No pictures (text and layout only)", "min": "Minimum (smallest file)"}
+
+    def open_starter(self):
+        StarterDialog(self, self)
+
+    def use_starter(self, e):
+        """Fill in the Sites or Books tab from an approved starter-library entry. Nothing starts by itself."""
+        if e["kind"] == "site":
+            self.url.set(e["url"])
+            if self.PRESET_KEYS.get(e.get("preset")) in PRESETS:
+                self.preset.set(self.PRESET_KEYS[e["preset"]])
+                self.apply_preset()
+            if self.DETAIL_KEYS.get(e.get("detail")) in DETAILS:
+                self.detail.set(self.DETAIL_KEYS[e["detail"]])
+                self.apply_detail()
+            self.main_nb.select(0)
+            self.schedule_check(0)
+            self.status.set(f"Filled in '{e['name']}'. Look it over, then click Convert (or Add to queue).")
+        else:
+            self.books.set_mode("lookup")
+            self.books.query.set(e["query"])
+            self.main_nb.select(self.books)
+            self.books.status.set(f"Filled in '{e['name']}'. Click Look up.")
+
+    def queue_site(self):
+        """Put the Sites tab's current job in the queue instead of running it now."""
+        url = self.url.get().strip()
+        if url and "://" not in url:
+            url = "https://" + url
+            self.url.set(url)
+        p = urlsplit(url)
+        if p.scheme not in ("http", "https") or not p.hostname or ("." not in p.hostname and p.hostname != "localhost"):
+            messagebox.showerror(APP_NAME, "Please enter a full website address, like https://example.com")
+            return
+        folder = self.folder.get().strip()
+        if not folder:
+            self.browse()
+            folder = self.folder.get().strip()
+            if not folder:
+                return
+        name = re.sub(r'[\\/:*?"<>|]', "_", self.fname.get().strip() or default_filename(url))
+        if not name.lower().endswith(".zim"):
+            name += ".zim"
+        out, n = os.path.join(folder, name), 1
+        while os.path.exists(out):   # never overwrite a finished ZIM from the queue
+            n += 1
+            out = os.path.join(folder, f"{name[:-4]} ({n}).zim")
+        if self.preset.get() == WHOLE:
+            self.apply_preset()
+        self.save_settings()
+        import dataclasses
+        engine = self.engine.get()
+        opts = dataclasses.asdict(self.make_options())
+        job, waiting = self.queue_tab.add("site", {"url": url, "out": out, "engine": engine, "opts": opts})
+        self.status.set(f"Added to the queue ({waiting} waiting). Open the Queue tab to start it.")
+
     def preset_values(self, name):
         vals = PRESETS.get(name)
         if not vals:
@@ -787,19 +871,7 @@ class App(tk.Tk):
                 self.run_notes.append("Zimit can't remove scripts; they were kept.")
             if self.to_int(self.max_file_mb, 0):
                 self.run_notes.append("Zimit can't skip big files; the size cap was ignored.")
-        opts = Options(
-            max_pages=self.to_int(self.max_pages, 20000),
-            max_mb=self.to_int(self.max_mb, 0),
-            max_minutes=self.to_int(self.max_minutes, 0),
-            workers=min(16, max(1, self.to_int(self.workers, 4))),
-            delay=prefs.get("site_pause_ms") / 1000.0,
-            path_scope=self.path_scope.get(),
-            subdomains=self.subdomains.get(),
-            skip_images=self.dv["skip_images"].get(), skip_media=self.dv["skip_media"].get(),
-            skip_fonts=self.dv["skip_fonts"].get(), skip_docs=self.dv["skip_docs"].get(),
-            shrink_images=self.dv["shrink_images"].get(), no_scripts=self.dv["no_scripts"].get(),
-            max_file_mb=self.to_int(self.max_file_mb, 0), depth=self.to_int(self.depth, 0),
-        )
+        opts = self.make_options()
         self.out_path = out
         self.cancel = threading.Event()
         self.running = True
@@ -858,6 +930,8 @@ class App(tk.Tk):
                     self.on_check_result(*val)
                 elif kind == "book":
                     self.books.on_event(val)
+                elif kind == "queue":
+                    self.queue_tab.refresh()
                 elif kind == "settings":
                     self.settings.on_event(val)
                 elif kind == "bookcheck":
@@ -959,12 +1033,13 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, text)
 
     def on_close(self):
-        if self.running or self.books.running or self.settings.library.running:
+        if self.running or self.books.running or self.settings.library.running or self.queue_tab.q.running:
             if not messagebox.askyesno(APP_NAME, "Something is still running. Cancel it and quit?"):
                 return
             self.cancel.set()
             self.books.cancel.set()
             self.settings.library.cancel.set()
+            self.queue_tab.stop_all()
         self.save_settings()
         self.destroy()
 

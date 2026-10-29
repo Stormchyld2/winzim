@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import bookread
 import books
+import crawlcache
 import jobs
 import prefs
 import settings as appsettings
@@ -18,6 +19,7 @@ from appinfo import CONTACT, NAME, VERSION
 from books import human_size
 
 PAD = {"padx": 12, "pady": 4}
+CACHE_LABELS = {"update": "Update (check for changes)", "resume": "Resume (trust saved pages)", "off": "Off"}
 
 
 def _open_path(path):
@@ -116,9 +118,11 @@ class SettingsTab(ttk.Frame):
                 val = prefs.get(k)
                 v.set(bool(val) if isinstance(v, tk.BooleanVar) else str(val))
             self.theme.set("dark" if self.app.dark else "light")
+            self.cache_label.set(CACHE_LABELS.get(prefs.get("cache_mode"), CACHE_LABELS["update"]))
         finally:
             self._loading = False
         self.refresh_tools()
+        self.refresh_cache()
         self.library.refresh_from_prefs()
 
     # ------------------------------------------------------------ pages
@@ -189,10 +193,41 @@ class SettingsTab(ttk.Frame):
         ttk.Label(f, text="1 to 16 (more is faster but harder on the site)", style="Counts.TLabel").grid(row=1, column=2, sticky="w")
         self._num(f, 2, "site_pause_ms", "Pause between pages", 0, 5000, "milliseconds")
         self._note(f, 3, "A pause makes the crawl slower and kinder to small websites that might otherwise block you.")
-        self._head(f, 4, "Zimit engine (Docker)")
-        ttk.Label(f, textvariable=self.app.docker_msg).grid(row=5, column=0, columnspan=3, sticky="w", **PAD)
+        self._head(f, 4, "Saved pages (built-in engine)")
+        ttk.Label(f, text="Remember pages between runs").grid(row=5, column=0, sticky="w", **PAD)
+        self.cache_label = tk.StringVar()
+        cb = ttk.Combobox(f, textvariable=self.cache_label, values=list(CACHE_LABELS.values()), state="readonly", width=44)
+        cb.grid(row=5, column=1, sticky="w", **PAD)
+        self.cache_label.trace_add("write", lambda *_: self._cache_changed())
+        self._note(f, 6, "Update: run the same site again and only changed pages are downloaded again; an interrupted run "
+                         "carries on where it stopped. Resume: trust the saved pages without asking the site (fastest, may be out "
+                         "of date). Off: always download everything. Saved pages take disk space, about as much as the site itself. "
+                         "The Zimit engine cannot do this; it always starts over.")
+        row = ttk.Frame(f)
+        row.grid(row=7, column=0, columnspan=3, sticky="w", **PAD)
+        self.cache_info = tk.StringVar()
+        ttk.Button(row, text="Open folder", command=lambda: _open_path(crawlcache.default_root())).pack(side="left")
+        ttk.Button(row, text="Clear saved pages", command=self.clear_cache).pack(side="left", padx=8)
+        ttk.Label(row, textvariable=self.cache_info).pack(side="left", padx=8)
+        self._head(f, 8, "Zimit engine (Docker)")
+        ttk.Label(f, textvariable=self.app.docker_msg).grid(row=9, column=0, columnspan=3, sticky="w", **PAD)
         ttk.Button(f, text="Check again", command=lambda: threading.Thread(target=self.app.check_docker, daemon=True).start()).grid(
-            row=6, column=0, sticky="w", **PAD)
+            row=10, column=0, sticky="w", **PAD)
+
+    def _cache_changed(self):
+        if self._loading:
+            return
+        inv = {v: k for k, v in CACHE_LABELS.items()}
+        prefs.set("cache_mode", inv.get(self.cache_label.get(), "update"))
+        self.app.save_settings()
+
+    def refresh_cache(self):
+        self.cache_info.set("Using " + human_size(crawlcache.cache_size(crawlcache.default_root())))
+
+    def clear_cache(self):
+        if messagebox.askyesno(NAME, "Delete all saved pages? The next run of each site will download everything again."):
+            crawlcache.clear_cache(crawlcache.default_root())
+            self.refresh_cache()
 
     def _zimpage(self):
         f = self._page("Books to ZIM")
@@ -347,6 +382,7 @@ class LibraryPanel(ttk.Frame):
         self.pick_all = ttk.Button(bar, text="Select all", command=lambda: self.set_checks(True))
         self.pick_none = ttk.Button(bar, text="Select none", command=lambda: self.set_checks(False))
         ttk.Button(bar, text="Open folder", command=self.open_folder).pack(side="right")
+        ttk.Button(bar, text="Add all to queue", command=self.queue_all).pack(side="right", padx=6)
         ttk.Label(bar, textvariable=self.status, style="Amber.TLabel").pack(side="right", padx=10)
         self.apply_multi()
 
@@ -552,6 +588,14 @@ class LibraryPanel(ttk.Frame):
             self.app.q.put(("settings", {"type": "lib_done", "results": res}))
         threading.Thread(target=work, daemon=True).start()
         self.update_counts()
+
+    def queue_all(self):
+        zim, folder = self.zim.get().strip(), self.folder.get().strip()
+        if not zim or not os.path.isfile(zim) or not folder:
+            messagebox.showinfo(NAME, "Choose the ZIM file and the folder first.")
+            return
+        job, waiting = self.app.queue_tab.add("extract", {"zim": zim, "folder": folder})
+        self.status.set(f"Added to the queue ({waiting} waiting).")
 
     def on_cancel(self):
         self.cancel.set()

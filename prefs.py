@@ -22,6 +22,7 @@ DEFAULTS = {
     "catalog_contact": True,     # tell the big book catalogs who is asking
     # sites
     "site_pause_ms": 0,          # pause between pages on the built-in engine
+    "cache_mode": "update",      # off | resume (trust saved pages) | update (ask the site what changed)
     # books -> zim
     "zim_name": "Recon Library",
     "zim_max_file_mb": 2000,
@@ -59,6 +60,8 @@ def set(key, value):  # noqa: A001  (module-level setter, named like the getter)
         value = max(lo, min(hi, value))
     else:
         value = str(value).strip()
+        if key == "cache_mode" and value not in ("off", "resume", "update"):
+            value = d
     _values[key] = value
 
 
@@ -81,5 +84,10 @@ def apply_network():
     """Install the proxy (if any) for every request the program makes."""
     import urllib.request
     p = get("proxy")
-    handlers = [urllib.request.ProxyHandler({"http": p, "https": p})] if p else [urllib.request.ProxyHandler()]
-    urllib.request.install_opener(urllib.request.build_opener(*handlers))
+    urllib.request.install_opener(urllib.request.build_opener(proxy_handler()))
+
+
+def proxy_handler():
+    import urllib.request
+    p = get("proxy")
+    return urllib.request.ProxyHandler({"http": p, "https": p}) if p else urllib.request.ProxyHandler()

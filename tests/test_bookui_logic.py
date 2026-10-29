@@ -169,6 +169,7 @@ bookui.simpledialog.askstring = lambda *a, **k: "My Lib"
 bookui.filedialog.asksaveasfilename = lambda **k: zout
 shown = []
 bookui.messagebox.showinfo = lambda *a, **k: shown.append(a)
+bookui.messagebox.askyesnocancel = lambda *a, **k: True
 b.running = False
 b.make_zim()
 zev = []

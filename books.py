@@ -611,6 +611,34 @@ def add_to_manifest(folder, row):
     return path
 
 
+def download_many(items, folder, cancel, at_once=6, retries=1, cap_mb=0, log_manifest=True, on_state=None, on_progress=None):
+    """Download several books at once (the rest wait in line and start as others finish).
+    items: dicts with title, author, year, fmt, url, size, source, public_domain.
+    Returns (paths, errors) with errors as [(title, message)]."""
+    import jobs
+
+    def one(i, it):
+        if cap_mb and it.get("size") and it["size"] > cap_mb * 1024 * 1024:
+            raise RuntimeError(f"Bigger than your {cap_mb} MB limit (Settings > Downloads).")
+        for attempt in range(retries + 1):
+            try:
+                path = download_file(it["url"], folder, it["title"], it["fmt"],
+                                     (lambda d, t, i=i: on_progress(i, d, t)) if on_progress else None, cancel)
+                break
+            except RuntimeError as e:
+                if str(e) == "Cancelled" or attempt == retries or "web page" in str(e):
+                    raise
+                time.sleep(1.5 * (attempt + 1))
+        if log_manifest:
+            add_to_manifest(folder, {"title": it["title"], "author": it.get("author") or "", "year": it.get("year") or "",
+                                     "format": it["fmt"], "size_bytes": os.path.getsize(path), "source": it.get("source", ""),
+                                     "public_domain": it.get("public_domain", ""), "url": it["url"], "file": path})
+        return path
+    res = jobs.run_jobs(items, one, at_once, cancel, on_state)
+    return ([info for st, info in res if st == "done"],
+            [(items[i]["title"], info) for i, (st, info) in enumerate(res) if st == "failed"])
+
+
 # =========================================================================== title / author lookup
 BASES = {"openlibrary": "https://openlibrary.org", "archive": "https://archive.org",
          "gutendex": "https://gutendex.com", "google": "https://www.googleapis.com",

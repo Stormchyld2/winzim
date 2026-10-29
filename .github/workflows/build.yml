@@ -14,7 +14,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Run tests
-        run: python tests/test_local.py
+        run: |
+          python tests/test_local.py
+          python tests/test_zimit_engine.py
       - name: Build exe
         run: |
           python -m pip install pyinstaller

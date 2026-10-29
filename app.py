@@ -1,4 +1,9 @@
-"""WinZim - turn any website into a ZIM file. Self-contained, no Docker needed."""
+"""WinZim - turn any website into a ZIM file.
+
+Engines:
+  * Zimit (Docker Desktop)  - the official openZIM crawler, real browser, handles JavaScript sites.
+  * Built-in (no Docker)    - simple pure-Python crawler for ordinary static sites.
+"""
 import datetime
 import os
 import queue
@@ -6,10 +11,11 @@ import re
 import subprocess
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
 from crawler import Options, convert
+from zimit_engine import docker_status, run_zimit
 
 APP_NAME = "WinZim"
 
@@ -32,8 +38,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"{APP_NAME} - Website to ZIM")
-        self.geometry("820x680")
-        self.minsize(720, 560)
+        self.geometry("860x740")
+        self.minsize(760, 620)
         self.q = queue.Queue()
         self.cancel = threading.Event()
         self.running = False
@@ -63,6 +69,16 @@ class App(tk.Tk):
         ttk.Entry(top, textvariable=self.fname).grid(row=2, column=1, sticky="ew", pady=3, padx=(6, 0))
         ttk.Label(top, text="blank = automatic", foreground="gray").grid(row=2, column=2, padx=(6, 0))
 
+        eng = ttk.LabelFrame(self, text="Engine")
+        eng.pack(fill="x", **pad)
+        self.engine = tk.StringVar(value="zimit")
+        ttk.Radiobutton(eng, text="Zimit (needs Docker Desktop) - best quality, handles JavaScript sites",
+                        variable=self.engine, value="zimit").pack(anchor="w", padx=8, pady=(4, 0))
+        ttk.Radiobutton(eng, text="Built-in (no Docker) - simple websites only",
+                        variable=self.engine, value="builtin").pack(anchor="w", padx=8)
+        self.docker_msg = tk.StringVar(value="Checking Docker Desktop...")
+        ttk.Label(eng, textvariable=self.docker_msg, foreground="gray").pack(anchor="w", padx=28, pady=(0, 4))
+
         opts = ttk.LabelFrame(self, text="Options")
         opts.pack(fill="x", **pad)
         self.max_pages = tk.StringVar(value="1000")
@@ -81,8 +97,9 @@ class App(tk.Tk):
         ttk.Entry(r, width=7, textvariable=self.max_mb).grid(row=0, column=5, padx=6)
         ttk.Label(r, text="Limit time (min):").grid(row=0, column=6, sticky="w", padx=(14, 0))
         ttk.Entry(r, width=6, textvariable=self.max_minutes).grid(row=0, column=7, padx=6)
-        ttk.Label(r, text="0 = no limit. More workers = faster, but some sites may block heavy traffic.",
-                  foreground="gray").grid(row=1, column=0, columnspan=8, sticky="w", pady=(4, 0))
+        ttk.Label(r, text="0 = no limit. More workers = faster, but heavy use may get you blocked by some sites "
+                          "(and Zimit uses more memory).", foreground="gray"
+                  ).grid(row=1, column=0, columnspan=8, sticky="w", pady=(4, 0))
         ttk.Checkbutton(r, text="Only pages inside this URL's folder",
                         variable=self.path_scope).grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
         ttk.Checkbutton(r, text="Include subdomains",
@@ -92,8 +109,7 @@ class App(tk.Tk):
         bar.pack(fill="x", **pad)
         self.cancel_btn = ttk.Button(bar, text="Cancel", command=self.on_cancel, state="disabled")
         self.cancel_btn.pack(side="left")
-        self.open_btn = ttk.Button(bar, text="Open folder", command=self.open_folder)
-        self.open_btn.pack(side="left", padx=6)
+        ttk.Button(bar, text="Open folder", command=self.open_folder).pack(side="left", padx=6)
         self.status = tk.StringVar(value="Ready. Enter a URL and click Convert.")
         ttk.Label(bar, textvariable=self.status).pack(side="right")
 
@@ -102,29 +118,38 @@ class App(tk.Tk):
         self.counts = tk.StringVar(value="")
         ttk.Label(self, textvariable=self.counts, font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10)
 
-        frame = ttk.Frame(self)
-        frame.pack(fill="both", expand=True, **pad)
-        cols = ("status", "url")
-        self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=10)
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, **pad)
+        pages = ttk.Frame(nb)
+        nb.add(pages, text="Pages")
+        self.tree = ttk.Treeview(pages, columns=("status", "url"), show="headings", height=8)
         self.tree.heading("status", text="Status")
         self.tree.heading("url", text="Page")
-        self.tree.column("status", width=110, stretch=False)
+        self.tree.column("status", width=130, stretch=False)
         self.tree.column("url", width=600)
-        sb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        sb = ttk.Scrollbar(pages, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
         self.tree.tag_configure("err", foreground="#b00020")
+        logf = ttk.Frame(nb)
+        nb.add(logf, text="Log")
+        self.log = scrolledtext.ScrolledText(logf, height=8, state="disabled", font=("Consolas", 9))
+        self.log.pack(fill="both", expand=True)
 
         self.result = tk.StringVar(value="")
-        self.result_lbl = ttk.Label(self, textvariable=self.result, wraplength=780, foreground="#0a6b2b",
-                                    font=("Segoe UI", 10, "bold"))
-        self.result_lbl.pack(anchor="w", padx=10, pady=(0, 8))
+        ttk.Label(self, textvariable=self.result, wraplength=820, foreground="#0a6b2b",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10, pady=(0, 8))
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(100, self.pump)
+        threading.Thread(target=self.check_docker, daemon=True).start()
 
     # ------------------------------------------------------------ helpers
+    def check_docker(self):
+        state, _ = docker_status()
+        self.q.put(("docker", state))
+
     def browse(self):
         d = filedialog.askdirectory(initialdir=self.folder.get() or None, title="Choose where to save the ZIM file")
         if d:
@@ -147,6 +172,12 @@ class App(tk.Tk):
         except ValueError:
             return default
 
+    def add_log(self, text):
+        self.log.configure(state="normal")
+        self.log.insert("end", text + "\n")
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
     # ------------------------------------------------------------- actions
     def start(self):
         if self.running:
@@ -156,7 +187,7 @@ class App(tk.Tk):
             url = "https://" + url
             self.url.set(url)
         p = urlsplit(url)
-        if p.scheme not in ("http", "https") or not p.hostname or "." not in p.hostname and p.hostname != "localhost":
+        if p.scheme not in ("http", "https") or not p.hostname or ("." not in p.hostname and p.hostname != "localhost"):
             messagebox.showerror(APP_NAME, "Please enter a full website address, like https://example.com")
             return
         folder = self.folder.get().strip()
@@ -192,17 +223,25 @@ class App(tk.Tk):
         self.convert_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         self.tree.delete(*self.tree.get_children())
+        self.log.configure(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.configure(state="disabled")
         self.result.set("")
-        self.counts.set("Pages: 0    Files: 0    Size: 0 B")
-        self.status.set("Downloading site...")
+        self.counts.set("")
+        self.status.set("Starting...")
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
-        threading.Thread(target=self.work, args=(url, out, opts), daemon=True).start()
+        threading.Thread(target=self.work, args=(self.engine.get(), url, out, opts), daemon=True).start()
 
-    def work(self, url, out, opts):
+    def work(self, engine, url, out, opts):
+        emit = lambda e: self.q.put(("event", e))  # noqa: E731
         try:
-            size, c = convert(url, out, opts, on_event=lambda e: self.q.put(("event", e)), cancel=self.cancel)
-            self.q.put(("done", (out, size, c.pages, c.files, c.failed)))
+            if engine == "zimit":
+                r = run_zimit(url, out, opts, emit, self.cancel)
+                self.q.put(("done", (out, r["size"], r["pages"], None, r["failed"])))
+            else:
+                size, c = convert(url, out, opts, on_event=emit, cancel=self.cancel)
+                self.q.put(("done", (out, size, c.pages, c.files, c.failed)))
         except Exception as e:
             self.q.put(("error", str(e)))
 
@@ -213,7 +252,7 @@ class App(tk.Tk):
 
     def pump(self):
         try:
-            for _ in range(200):
+            for _ in range(300):
                 kind, val = self.q.get_nowait()
                 if kind == "event":
                     self.on_event(val)
@@ -221,21 +260,36 @@ class App(tk.Tk):
                     self.on_done(*val)
                 elif kind == "error":
                     self.on_error(val)
+                elif kind == "docker":
+                    self.docker_msg.set({
+                        "ready": "Docker Desktop: ready.",
+                        "not_running": "Docker Desktop: installed but not running - start it before using Zimit.",
+                        "missing": "Docker Desktop: not found - install it for Zimit, or use the Built-in engine.",
+                    }[val])
         except queue.Empty:
             pass
         self.after(100, self.pump)
 
+    def add_row(self, status, url, err=False):
+        row = self.tree.insert("", "end", values=(status, url), tags=("err",) if err else ())
+        self.tree.see(row)
+
     def on_event(self, e):
         t = e.get("type")
-        if t == "fetch":
+        if t == "fetch":  # built-in engine
             if e["ok"]:
-                if e.get("mime", "").startswith("text/html") or e.get("mime") == "application/xhtml+xml":
-                    row = self.tree.insert("", "end", values=("Saved", e["url"]))
-                    self.tree.see(row)
+                if str(e.get("mime", "")).startswith(("text/html", "application/xhtml")):
+                    self.add_row("Saved", e["url"])
             else:
-                row = self.tree.insert("", "end", values=(f"Failed ({e['error']})", e["url"]), tags=("err",))
-                self.tree.see(row)
+                self.add_row(f"Failed ({e['error']})", e["url"], True)
+                self.add_log(f"FAILED {e['url']}  ({e['error']})")
             self.counts.set(f"Pages: {e['pages']}    Files: {e['files']}    Size: {fmt_size(e['bytes'])}")
+        elif t == "row":  # zimit
+            self.add_row(e["status"], e["url"], e.get("error", False))
+        elif t == "stats":
+            self.counts.set(f"Crawled: {e['crawled']} of {e['total']}    Waiting: {e['pending']}    Failed: {e['failed']}")
+        elif t == "log":
+            self.add_log(e["text"])
         elif t == "phase":
             self.status.set(e["text"])
         elif t == "build":
@@ -251,21 +305,23 @@ class App(tk.Tk):
 
     def on_done(self, out, size, pages, files, failed):
         self.finish_ui()
-        self.progress.configure(mode="determinate", value=self.progress["maximum"])
+        self.progress.configure(mode="determinate", maximum=1, value=1)
         self.status.set("Done")
-        msg = f"Saved: {out}   ({fmt_size(size)}, {pages} pages, {files} files"
-        msg += f", {failed} failed)" if failed else ")"
-        self.result.set(msg)
+        detail = f"{fmt_size(size)}, {pages} pages" + (f", {files} files" if files is not None else "")
+        if failed:
+            detail += f", {failed} failed"
+        self.result.set(f"Saved: {out}   ({detail})")
         if messagebox.askyesno(APP_NAME, f"ZIM file created:\n{out}\n\nShow it in its folder?"):
             self.open_folder()
 
     def on_error(self, text):
         self.finish_ui()
-        self.progress.configure(mode="determinate", value=0)
+        self.progress.configure(mode="determinate", maximum=1, value=0)
         if text == "Cancelled":
             self.status.set("Cancelled")
         else:
             self.status.set("Error")
+            self.add_log("ERROR: " + text)
             messagebox.showerror(APP_NAME, text)
 
     def on_close(self):

@@ -48,6 +48,10 @@ if a[0] == "run":
         if mode == "interrupt" and not os.path.exists(os.path.join(d, "second_run")):
             open(os.path.join(d, "second_run"), "w").write("1")
             sys.exit(137)
+    if mode == "brokenstate" and os.path.exists(os.path.join(mount, "build", "stale")):
+        print(json.dumps({"logLevel": "error", "context": "general", "message": "Unexpected error, interrupting",
+                          "details": {"error": "bad saved state"}}), flush=True)
+        sys.exit(1)
     if mode == "unknownflag" and "--pageLimit" in a:
         print("usage: zimit [-h]\nzimit: error: unrecognized arguments: --pageLimit", flush=True)
         sys.exit(2)
@@ -172,6 +176,19 @@ def test_fake_docker():
     assert any("tag ghcr.io/openzim/zimit cindrixrecon/crawler:latest" in c for c in open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines())
     assert runs and "cindrixrecon/crawler:latest zimit" in runs[0], runs
     print("fake docker: runs under the Cindrix image name ok")
+
+    # a continued run that fails at once is retried clean; real crawler errors are shown in the message
+    import zimit_engine as ze
+    res, ev, out, out_dir, err = run_fake("brokenstate")       # first run: no stale state yet, succeeds
+    assert err is None
+    tmpd = _LAST["tmp"]
+    os.makedirs(os.path.join(ze.resume_dir(out, "https://example.com"), "build"), exist_ok=True)
+    open(os.path.join(ze.resume_dir(out, "https://example.com"), "build", "stale"), "w").write("x")
+    res, ev, out, out_dir, err = run_fake("brokenstate", reuse=True)
+    assert err is None and res["size"] == 700, err
+    assert any(e["type"] == "warn" and "started over" in e["text"] for e in ev), "no notice about the clean restart"
+    res, ev, out, out_dir, err = run_fake("nozim")
+    print("fake docker: broken kept state retried clean ok")
 
     # default: look for a newer crawler every run; switched off: use the local copy; missing: always download
     import prefs

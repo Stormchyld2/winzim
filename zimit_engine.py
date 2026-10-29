@@ -237,7 +237,11 @@ def _parse_line(line):
             elif msg.startswith("Page Load Failed") or msg.startswith("Page Load Timeout"):
                 out.append({"type": "row", "status": "Failed", "url": page, "error": True})
         if msg:
-            out.append({"type": "log", "text": msg + (f"  {page}" if isinstance(page, str) else "")})
+            text = msg + (f"  {page}" if isinstance(page, str) else "")
+            if str(j.get("logLevel", "")).lower() in ("error", "fatal"):
+                extra = json.dumps(det, ensure_ascii=False)[:300] if det else ""
+                text = "ERROR: " + text + (f"  {extra}" if extra else "")
+            out.append({"type": "log", "text": text})
         return out
     low = line.lower()
     ev = [{"type": "log", "text": line}]
@@ -386,6 +390,7 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
     os.makedirs(work, exist_ok=True)
     finished = []
     tail, stats = [], {"crawled": 0, "failed": 0, "limit": None}
+    errors = []        # the crawler's own error lines: what to show when it fails, instead of the start-up noise
 
     def on_line(raw):
         for ev in parse_line(raw):
@@ -396,6 +401,9 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
             if ev["type"] == "log":
                 tail.append(ev["text"])
                 del tail[:-12]
+                if "error" in ev["text"].lower() and "Page Load" not in ev["text"]:
+                    errors.append(ev["text"])
+                    del errors[:-5]
             on_event(ev)
 
     def run(cmd, label):
@@ -474,48 +482,60 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
         def list_zims():
             return [os.path.join(work, f) for f in os.listdir(work) if f.lower().endswith(".zim")]
 
-        extras, legacy, dropped = bool(optional_flags(o)), False, set()
-        for _attempt in range(4):
-            cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy, build=True, image=image)
-            if dropped:
-                cmd = drop_flags(cmd, dropped)
-            on_event({"type": "log", "text": "> " + " ".join(cmd)})
-            del tail[:]
-            for f in os.listdir(work):                    # a ZIM left by an earlier attempt must not be mistaken for this run's
-                if f.lower().endswith(".zim"):
-                    try:
-                        os.remove(os.path.join(work, f))
-                    except OSError:
-                        pass
-            rc = run(cmd, "Crawling the site with Cindrix Recon...")
-            if cancel.is_set():
-                raise RuntimeError("Cancelled")
-            if rc == 0 or list_zims():
+        was_resumed = bool(unfinished(out_path, url)) and resume
+        for _round in range(2):
+            extras, legacy, dropped = bool(optional_flags(o)), False, set()
+            for _attempt in range(4):
+                cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy, build=True, image=image)
+                if dropped:
+                    cmd = drop_flags(cmd, dropped)
+                on_event({"type": "log", "text": "> " + " ".join(cmd)})
+                del tail[:]
+                for f in os.listdir(work):                    # a ZIM left by an earlier attempt must not be mistaken for this run's
+                    if f.lower().endswith(".zim"):
+                        try:
+                            os.remove(os.path.join(work, f))
+                        except OSError:
+                            pass
+                rc = run(cmd, "Crawling the site with Cindrix Recon...")
+                if cancel.is_set():
+                    raise RuntimeError("Cancelled")
+                if rc == 0 or list_zims():
+                    break
+                text = " ".join(tail)
+                if "unrecognized arguments" in text and ("SoftLimit" in text) and not legacy and (o.max_mb or o.max_minutes):
+                    legacy = True       # an older crawler image: it knows the old size/time option names
+                    on_event({"type": "log", "text": "Older crawler version - retrying with its size/time option names."})
+                    continue
+                bad = unrecognized_flags(text) - dropped - {"--seeds", "--name", "--output"}
+                if bad:     # this crawler version does not know some option: leave it out and carry on
+                    dropped |= bad
+                    on_event({"type": "warn", "text": "This crawler version does not know the option(s) " + ", ".join(sorted(bad))
+                                                      + ", so they were left out of this run."})
+                    continue
+                if extras:
+                    on_event({"type": "log", "text": "The crawler didn't accept the detail/depth options - retrying without them. "
+                                                     "Pictures and files will not be filtered this run."})
+                    on_event({"type": "warn", "text": "The crawler ignored the detail level / depth options, so this run saved "
+                                                      "everything it normally would."})
+                    extras = False
+                    continue
                 break
-            text = " ".join(tail)
-            if "unrecognized arguments" in text and ("SoftLimit" in text) and not legacy and (o.max_mb or o.max_minutes):
-                legacy = True       # an older crawler image: it knows the old size/time option names
-                on_event({"type": "log", "text": "Older crawler version - retrying with its size/time option names."})
-                continue
-            bad = unrecognized_flags(text) - dropped - {"--seeds", "--name", "--output"}
-            if bad:     # this crawler version does not know some option: leave it out and carry on
-                dropped |= bad
-                on_event({"type": "warn", "text": "This crawler version does not know the option(s) " + ", ".join(sorted(bad))
-                                                  + ", so they were left out of this run."})
-                continue
-            if extras:
-                on_event({"type": "log", "text": "The crawler didn't accept the detail/depth options - retrying without them. "
-                                                 "Pictures and files will not be filtered this run."})
-                on_event({"type": "warn", "text": "The crawler ignored the detail level / depth options, so this run saved "
-                                                  "everything it normally would."})
-                extras = False
+            if not list_zims() and was_resumed and stats["crawled"] == 0 and not cancel.is_set():
+                # a continued run that failed before collecting anything: the kept state may be what is broken. Start clean once.
+                on_event({"type": "warn", "text": "The continued run failed straight away, so the kept pages were set aside "
+                                                  "and the crawl was started over."})
+                shutil.rmtree(os.path.join(work, "build"), ignore_errors=True)
+                was_resumed = False
                 continue
             break
 
         zims = list_zims()
         if not zims:
-            raise RuntimeError(f"The crawler ended (exit code {rc}) without creating a ZIM file.\n\n"
-                               + "\n".join(tail[-6:]))
+            shown = errors[-4:] or tail[-6:]
+            raise RuntimeError(f"The crawler ended (exit code {rc}) without creating a ZIM file.\n\n" + "\n".join(shown)
+                               + ("\n\nIf this keeps happening, choose 'start over' (or delete the .recon_resume_ folder) "
+                                  "and check the log on the Sites tab." if resume else ""))
         newest = max(zims, key=os.path.getmtime)
         if os.path.exists(out_path):
             os.remove(out_path)

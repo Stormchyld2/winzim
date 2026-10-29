@@ -82,7 +82,7 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
 
 - A home page with search (title, author, category) and filters for category, format, language, size and public domain only, plus sorting by title, author, year, size or category, ascending or descending.
 - A page for each book with its cover, description and the formats you have. Subfolders become categories, and a PDF and an EPUB of the same book share one page.
-- **Reading inside Kiwix:** PDFs open as they are. EPUB, MOBI, AZW3, TXT, FB2, CBZ (comics) and RTF get a built-in reader with a chapter menu, previous/next, text size and light/dark. DRM-locked books cannot be read. DJVU, LIT and CBR are kept for saving only. MOBI and AZW3 are converted on a best-effort basis: text and pictures come through, but fancy layout and internal links may not.
+- **Reading inside Kiwix:** PDFs open as they are. EPUB, MOBI, AZW3, TXT, FB2, CBZ (comics) and RTF get a built-in reader with a chapter menu, previous/next, text size and light/dark. DRM-locked books cannot be read. DJVU, LIT and RAR-based CBR comics become readable if DjVuLibre, Calibre or 7-Zip is installed (Settings > Books to ZIM); otherwise they are kept for saving only. MOBI and AZW3 are converted on a best-effort basis: text and pictures come through, but fancy layout and internal links may not.
 - Kiwix cannot search inside book text; the search box covers titles, authors and categories.
 
 ### What Books will not do
@@ -93,6 +93,15 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
   "probably can't".
 - Catalog connectors were written from the services' published documentation and tested against stand-ins, not against
   the live services. If one stops answering, the others still work and the message says how many answered.
+
+## Settings tab
+
+- **General:** dark/light, remember choices, ask before bulk downloads, open the folder when done, Docker check, export/import/reset.
+- **Downloads:** how many at once (1 to 6; the rest wait in line and each starts the moment another finishes, so the number you pick stays busy until the list is empty), retries, skip books over a size, keep `library_manifest.csv`, books folder.
+- **Network:** timeout, pause between requests, proxy, whether the big book catalogs get the contact address, a connection test.
+- **Sites:** pages at once, pause between pages, Docker status.
+- **Books to ZIM:** default library name, biggest single file, readers on/off, and the optional helper programs (DjVuLibre for DJVU, 7-Zip for RAR comics, Calibre for LIT). They are found automatically if installed.
+- **ZIM library:** take the books back **out** of a ZIM made by Books to ZIM, for rebuilding it with more books. Pick the ZIM, and every row has a Download button. Turn on *Select several books at once* to get checkboxes plus Select all, Download selected and Download all. Files land in category subfolders with a restored `library_manifest.csv`, so the folder can go straight back into Books to ZIM.
 
 ## Getting Cindrix Recon
 **No Python needed:** on GitHub open the **Actions** tab, run **Build CindrixRecon** (or open the latest run) and
@@ -126,6 +135,7 @@ Dark / Light switch (top right, remembered).
 |---|---|
 | `app.py` | The window and the Sites tab |
 | `bookui.py`, `books.py` | Books tab window; book finding, link testing, catalog lookup, downloading |
+| `settingsui.py`, `prefs.py`, `jobs.py`, `zimlibrary.py` | Settings tab, program settings, the download queue, taking books out of a ZIM |
 | `bookzim.py`, `bookread.py`, `flame.py` | Books -> ZIM: catalog website builder, e-book converters for the in-ZIM reader, the flame logo shape |
 | `zimit_engine.py` | Runs Zimit via Docker, parses its progress |
 | `crawler.py`, `zimwriter.py` | Built-in crawler (detail levels, depth, picture shrinking), link rewriting, ZIM writer |
@@ -150,4 +160,5 @@ Run from the repo root (they also run in the GitHub build):
 - `python tests/test_detail.py`: detail levels, skipped files, script removal, depth, limit tracking.
 - `python tests/test_books.py`: site book finder, OPDS, link testing, PDF page counts, downloads, manifest, catalog lookup and ranking, using a fake book site and fake catalogs on localhost.
 - `python tests/test_bookzim.py`: the books ZIM, every reader format, filters data and links.
+- `python tests/test_zimlibrary.py`, `python tests/test_settings_logic.py`: taking books out of a ZIM (parallel, queued), the Settings tab.
 - `python tests/test_app_logic.py`, `python tests/test_bookui_logic.py`: window logic using a stub tkinter (draws no real window).

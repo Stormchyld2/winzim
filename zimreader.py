@@ -49,12 +49,37 @@ class ZimReader:
             p = e + 1
         self._cache = {}
         self._lock = threading.Lock()
+        self._io_lock = threading.RLock()
         self.content_ns = "C" if self.minor >= 1 else "A"
 
     # -- entries
     def _read(self, off, n):
-        self.f.seek(off)
-        return self.f.read(n)
+        with self._io_lock:   # several threads read the same file handle
+            self.f.seek(off)
+            return self.f.read(n)
+
+    def blob_location(self, e):
+        """(file offset, length) of an entry's bytes when its cluster is stored uncompressed (books are), else None.
+        Lets big files be copied out in pieces instead of loading them into memory."""
+        if e["redirect"] is not None:
+            return None
+        cl, bl = e["cluster"], e["blob"]
+        start = struct.unpack("<Q", self._read(self.cluster_ptr + 8 * cl, 8))[0]
+        info = self._read(start, 1)[0]
+        if info & 0x0F not in (0, 1):
+            return None
+        w = 8 if info & 0x10 else 4
+        fmt = "<Q" if w == 8 else "<I"
+        o0 = struct.unpack(fmt, self._read(start + 1 + w * bl, w))[0]
+        o1 = struct.unpack(fmt, self._read(start + 1 + w * (bl + 1), w))[0]
+        return start + 1 + o0, o1 - o0
+
+    def entries(self, ns="C"):
+        """Yield every non-redirect entry of a namespace."""
+        for i in range(self.entry_count):
+            e = self.dirent(i)
+            if e["ns"] == ns and e["redirect"] is None:
+                yield e
 
     def dirent(self, idx):
         off = struct.unpack("<Q", self._read(self.url_ptr + 8 * idx, 8))[0]

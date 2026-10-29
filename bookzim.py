@@ -441,6 +441,15 @@ def render_reader(b, fmt, rd, folder):
     return h.replace("<body>", '<body class="reader">', 1).replace("</body>", f"<script>{js}</script></body>").encode("utf-8")
 
 
+def catalog_dict(books_, title):
+    """A list of every book and file in the ZIM, so Cindrix Recon can take books back out later (Settings > ZIM library)."""
+    return {"app": NAME, "version": VERSION, "title": title, "built": datetime.date.today().isoformat(),
+            "books": [{"title": b["title"], "author": b["author"], "year": b["year"], "category": b["category"],
+                       "language": b["language"], "source": b.get("source", ""), "public_domain": is_pd(b),
+                       "formats": {f: {"url": d["url"], "size": d["size"], "name": d["name"]} for f, d in b["formats"].items()}}
+                      for b in books_]}
+
+
 def make_icon_png(size=48):
     """A small dark tile with the amber flame, as PNG bytes (the ZIM's icon)."""
     def poly(segs):
@@ -531,6 +540,7 @@ def build_books_zim(folder, out_path, title="Recon Library", on_event=None, canc
         books_ = [b for b in books_ if b["formats"]]
         for b in books_:
             w.add_entry(f"books/{b['slug']}.html", b["title"], "text/html", render_detail(b, title).encode("utf-8"))
+        w.add_entry("catalog.json", "", "application/json", json.dumps(catalog_dict(books_, title), ensure_ascii=False).encode("utf-8"))
         w.add_entry("index.html", title, "text/html", render_index(books_, title).encode("utf-8"))
         w.set_main("index.html")
         emit({"type": "phase", "text": "Writing the ZIM file..."})

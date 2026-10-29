@@ -92,9 +92,35 @@ try:
     cb = bookread.make_readable("CBZ", os.path.join(lib, "Radio", "comic.cbz"))
     check("cbz natural page order", [t for _, t in cb.spine] == ["Page 1", "Page 2", "Page 3"] and len(cb.spine) == 3)
     try:
-        bookread.make_readable("DJVU", "x"); check("djvu no reader", False)
-    except bookread.Unreadable:
-        check("djvu no reader", True)
+        bookread.make_readable("DJVU", os.path.join(lib, "Radio", "scan.djvu")); check("djvu says what it needs", False)
+    except bookread.Unreadable as e:
+        check("djvu says what it needs", "DjVuLibre" in str(e), e)
+    # helper programs (fake ones that behave like ddjvu / 7z / ebook-convert)
+    import prefs, stat
+    fake = os.path.join(root, "fake"); os.makedirs(fake)
+    def script(name, body):
+        p = os.path.join(fake, name); open(p, "w").write("#!/bin/sh\n" + body); os.chmod(p, 0o755); return p
+    prefs.set("tool_ddjvu", script("ddjvu", 'for last; do :; done; printf "%%PDF-1.4 converted pages" > "$last"\n'))
+    d = bookread.make_readable("DJVU", os.path.join(lib, "Radio", "scan.djvu"))
+    check("djvu via DjVuLibre", d.spine == [("book.pdf", "Book")] and d.files["book.pdf"][1].startswith(b"%PDF"), d.spine)
+    open(os.path.join(root, "rar.cbr"), "wb").write(b"Rar!\x1a\x07\x00" + b"0" * 50)
+    prefs.set("tool_7z", script("7z", 'for a; do case "$a" in -o*) out="${a#-o}";; esac; done\nprintf PNGDATA > "$out/b2.png"; printf PNGDATA > "$out/b10.png"; printf PNGDATA > "$out/b1.png"\n'))
+    c = bookread.make_readable("CBR", os.path.join(root, "rar.cbr"))
+    check("cbr via 7-Zip, natural order", [t for _, t in c.spine] == ["Page 1", "Page 2", "Page 3"] and c.files["p0003.png"][1] == b"PNGDATA", c.spine)
+    check("cbr that is really a zip needs no tool", len(bookread.make_readable("CBR", os.path.join(lib, "Radio", "comic.cbz")).spine) == 3)
+    open(os.path.join(root, "b.lit"), "wb").write(b"ITOLITLS" + b"0" * 40)
+    epub_src = os.path.join(lib, "Survival", "test-epub.epub")
+    prefs.set("tool_calibre", script("ebook-convert", f'cp "{epub_src}" "$2"\n'))
+    l = bookread.make_readable("LIT", os.path.join(root, "b.lit"))
+    check("lit via Calibre", [t for _, t in l.spine] == ["First chapter", "Second chapter"], l.spine)
+    prefs.set("tool_calibre", script("ebook-convert2", 'exit 3\n'))
+    try: bookread.make_readable("LIT", os.path.join(root, "b.lit")); check("failed conversion reported", False)
+    except bookread.Unreadable as e: check("failed conversion reported", "Calibre" in str(e), e)
+    prefs.set("zim_readers", False)
+    try: bookread.make_readable("EPUB", epub_src); check("readers switch off", False)
+    except bookread.Unreadable: check("readers switch off", True)
+    prefs.reset()
+    for k in ("tool_ddjvu", "tool_7z", "tool_calibre"): prefs.set(k, "")
     # real back-reference: "abc" then copy dist 3 len 4 -> abcabca
     d = b"\x03abc" + struct.pack(">H", 0x8000 | (3 << 3) | (4 - 3))
     check("palmdoc back-reference", bookread.palmdoc_decompress(d) == b"abcabca", bookread.palmdoc_decompress(d))
@@ -106,7 +132,7 @@ try:
     check("scan categories", {b["category"] for b in books_} == {"Survival", "Radio"})
     out = os.path.join(root, "lib.zim"); ev = []
     res = bookzim.build_books_zim(lib, out, "Test Library", ev.append)
-    check("build result", res["books"] == len(books_) and res["readers"] == 7 and len(res["no_reader"]) == 1, res)
+    check("build result", res["books"] == len(books_) and res["readers"] == 7 and len(res["no_reader"]) == 2, res)
     z = Zim(out)
     urls = {e["url"] for e in z.entries if e["ns"] == "C"}
     check("index + detail + reader pages", "index.html" in urls and any(u.startswith("read/") and u.endswith(".html") and u.count("/") == 1 for u in urls))

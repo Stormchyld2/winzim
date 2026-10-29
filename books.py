@@ -26,6 +26,7 @@ from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from urllib.parse import quote, urldefrag, urljoin, urlsplit
 
+import prefs
 from appinfo import CONTACT, REPO
 from crawler import decode_bytes, normalize, to_ascii
 
@@ -129,7 +130,15 @@ def human_size(n):
 
 
 # --------------------------------------------------------------------------- network
+def catalog_ua():
+    """The catalogs get the contact address unless the user turned that off in Settings."""
+    return CATALOG_UA if prefs.get("catalog_contact") else UA
+
+
 def _open(url, headers=None, timeout=15):
+    timeout = max(3, timeout * prefs.get("timeout_s") / 15.0)
+    if prefs.get("pause_ms"):
+        time.sleep(prefs.get("pause_ms") / 1000.0)
     h = {"User-Agent": UA, "Accept": "*/*"}
     h.update(headers or {})
     return urllib.request.urlopen(urllib.request.Request(to_ascii(url), headers=h), timeout=timeout)
@@ -155,7 +164,7 @@ def http_get(url, timeout=15, limit=3_000_000, headers=None):
 
 
 def get_json(url, timeout=15):
-    st, _, _, body = http_get(url, timeout, 5_000_000, {"Accept": "application/json", "User-Agent": CATALOG_UA})
+    st, _, _, body = http_get(url, timeout, 5_000_000, {"Accept": "application/json", "User-Agent": catalog_ua()})
     if st != 200:
         raise RuntimeError(f"HTTP {st}" if st else body.decode("utf-8", "replace")[:100])
     return json.loads(body.decode("utf-8", "replace"))
@@ -584,17 +593,21 @@ MANIFEST = "library_manifest.csv"
 MANIFEST_COLS = ["date", "title", "author", "year", "format", "size_bytes", "source", "public_domain", "url", "file"]
 
 
+_MANIFEST_LOCK = threading.Lock()
+
+
 def add_to_manifest(folder, row):
     """Append one line to library_manifest.csv in the save folder (created with a header if new)."""
     path = os.path.join(folder, MANIFEST)
-    new = not os.path.exists(path)
     row = dict(row)
     row.setdefault("date", datetime.date.today().isoformat())
-    with open(path, "a", newline="", encoding="utf-8-sig" if new else "utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=MANIFEST_COLS, extrasaction="ignore")
-        if new:
-            w.writeheader()
-        w.writerow({k: row.get(k, "") for k in MANIFEST_COLS})
+    with _MANIFEST_LOCK:   # several downloads can finish at the same moment
+        new = not os.path.exists(path)
+        with open(path, "a", newline="", encoding="utf-8-sig" if new else "utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=MANIFEST_COLS, extrasaction="ignore")
+            if new:
+                w.writeheader()
+            w.writerow({k: row.get(k, "") for k in MANIFEST_COLS})
     return path
 
 

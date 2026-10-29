@@ -3,12 +3,15 @@ import copy
 import os
 import subprocess
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from urllib.parse import urlsplit
 
 import books
+import jobs
+import prefs
 from books import DEFAULT_FORMATS, FORMAT_ORDER, human_size
 from sitecheck import check_site
 
@@ -473,7 +476,11 @@ class BookTab(ttk.Frame):
         elif t == "zim_done":
             self._zim_done(e)
         elif t == "dl_progress":
-            self.status.set(f"Downloading {e['i']} of {e['n']}: {e['title'][:40]}  {e['pct']}%")
+            if e["n"] == 1:
+                self.status.set(f"Downloading {e['title'][:40]}  {e['pct']}%")
+            else:
+                waiting = e["n"] - e["done"] - e["running"]
+                self.status.set(f"{e['done']} of {e['n']} done, {e['running']} downloading, {waiting} waiting")
         elif t == "dl_done":
             self.busy_ui(False, "done")
             if e["paths"]:
@@ -608,8 +615,9 @@ class BookTab(ttk.Frame):
             messagebox.showinfo("Book Finder", "Nothing to download yet.")
             return
         total = sum(i["size"] or 0 for i in items)
-        if not messagebox.askyesno("Book Finder", f"Download {len(items)} books"
-                                   + (f" (about {human_size(total)})" if total else "") + f" to\n{self.folder.get()} ?"):
+        if prefs.get("confirm_all") and not messagebox.askyesno(
+                "Book Finder", f"Download {len(items)} books" + (f" (about {human_size(total)})" if total else "")
+                + f" to\n{self.folder.get()} ?"):
             return
         self.start_download(items)
 
@@ -622,7 +630,7 @@ class BookTab(ttk.Frame):
             messagebox.showinfo("Books to ZIM", "Choose the folder that holds your books first (Save to folder), then try again.")
             return
         name = simpledialog.askstring("Books to ZIM", "Name of the library (shown at the top of the website):",
-                                      initialvalue="Recon Library", parent=self)
+                                      initialvalue=prefs.get("zim_name"), parent=self)
         if not name:
             return
         out = filedialog.asksaveasfilename(title="Save the ZIM file as", defaultextension=".zim", initialfile="recon-library.zim",
@@ -635,7 +643,8 @@ class BookTab(ttk.Frame):
         def work():
             try:
                 import bookzim
-                res = bookzim.build_books_zim(folder, os.path.normpath(out), name.strip(), self.emit, self.cancel)
+                res = bookzim.build_books_zim(folder, os.path.normpath(out), name.strip(), self.emit, self.cancel,
+                                              max_file_mb=prefs.get("zim_max_file_mb"))
                 self.emit({"type": "zim_done", "path": os.path.normpath(out), "res": res})
             except RuntimeError as e:
                 if str(e) == "Cancelled":
@@ -661,6 +670,8 @@ class BookTab(ttk.Frame):
         if r["skipped"]:
             msg += "\n\nLeft out:\n" + "\n".join(f"  {n[:45]}: {why}" for n, why in r["skipped"][:6])
         messagebox.showinfo("Books to ZIM", msg)
+        if prefs.get("open_when_done"):
+            self.open_folder()
 
     # ------------------------------------------------------------ downloading
     def start_download(self, items):
@@ -683,28 +694,57 @@ class BookTab(ttk.Frame):
         threading.Thread(target=self._dl_worker, args=(items, folder), daemon=True).start()
 
     def _dl_worker(self, items, folder):
-        paths, errors = [], []
-        for i, it in enumerate(items, 1):
-            if self.cancel.is_set():
-                break
-            self.emit({"type": "dl_progress", "i": i, "n": len(items), "title": it["title"], "pct": 0})
+        """Download several books at once (Settings > Downloads, up to 6); the rest wait in line and start as others finish."""
+        retries, cap = prefs.get("retries"), prefs.get("skip_over_mb")
+        counts = {"done": 0, "running": 0}
+        lock = threading.Lock()
+        pcts = {}
 
-            def prog(done, total, i=i, it=it):
+        def tell(title=""):
+            with lock:
+                avg = int(sum(pcts.values()) / max(1, len(pcts))) if pcts else 0
+                e = {"type": "dl_progress", "done": counts["done"], "running": counts["running"], "n": len(items),
+                     "title": title, "pct": avg}
+            self.emit(e)
+
+        def one(i, it):
+            if cap and it.get("size") and it["size"] > cap * 1024 * 1024:
+                raise RuntimeError(f"Bigger than your {cap} MB limit (Settings > Downloads).")
+
+            def prog(done, total):
                 pct = int(done * 100 / total) if total else 0
-                if pct - self._pct >= 3 or pct == 100:
-                    self._pct = pct
-                    self.emit({"type": "dl_progress", "i": i, "n": len(items), "title": it["title"], "pct": pct})
-            try:
-                path = books.download_file(it["url"], folder, it["title"], it["fmt"], prog, self.cancel)
+                if pct - pcts.get(i, -10) >= 4 or pct == 100:
+                    pcts[i] = pct
+                    tell(it["title"])
+            for attempt in range(retries + 1):
+                try:
+                    path = books.download_file(it["url"], folder, it["title"], it["fmt"], prog, self.cancel)
+                    break
+                except RuntimeError as e:
+                    if str(e) == "Cancelled" or attempt == retries or "web page" in str(e):
+                        raise
+                    pcts.pop(i, None)
+                    time.sleep(1.5 * (attempt + 1))
+            if prefs.get("log_manifest"):
                 books.add_to_manifest(folder, {"title": it["title"], "author": it.get("author") or "", "year": it.get("year") or "",
                                                "format": it["fmt"], "size_bytes": os.path.getsize(path),
                                                "source": it.get("source", ""), "public_domain": it.get("public_domain", ""),
                                                "url": it["url"], "file": path})
-                paths.append(path)
-            except RuntimeError as e:
-                if str(e) == "Cancelled":
-                    break
-                errors.append((it["title"], str(e)))
+            return path
+
+        def on_state(i, state, info):
+            with lock:
+                if state == "running":
+                    counts["running"] += 1
+                elif state in ("done", "failed", "skipped"):
+                    if counts["running"] and state != "skipped":
+                        counts["running"] -= 1
+                    counts["done"] += 1
+                    pcts.pop(i, None)
+            tell(items[i]["title"])
+        res = jobs.run_jobs(items, one, prefs.get("downloads_at_once"), self.cancel, on_state)
+        paths = [info for st, info in res if st == "done"]
+        errors = [(items[i]["title"], info) for i, (st, info) in enumerate(res) if st == "failed"]
         self.emit({"type": "dl_done", "paths": paths, "errors": errors, "cancelled": self.cancel.is_set()})
 
     # ------------------------------------------------------------ lookup mode cards

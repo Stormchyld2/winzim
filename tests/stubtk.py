@@ -27,6 +27,11 @@ class Var:
     def trace_add(self, mode, cb): self.cbs.append(cb)
 
 
+class BoolVar(Var):
+    def __init__(self, master=None, value=False, **k):
+        super().__init__(master, value, **k)
+
+
 class Tk(W):
     def after(self, ms, fn=None, *a): return fn
     def mainloop(self): pass
@@ -34,7 +39,7 @@ class Tk(W):
 
 asked = []
 tk = types.ModuleType("tkinter"); ttk = types.ModuleType("tkinter.ttk")
-tk.Tk, tk.Label, tk.StringVar, tk.BooleanVar, tk.Canvas = Tk, W, Var, Var, W
+tk.Tk, tk.Label, tk.StringVar, tk.BooleanVar, tk.Canvas = Tk, W, Var, BoolVar, W
 tk.Frame = tk.Toplevel = W
 tk.IntVar = Var
 for n in ("Frame","LabelFrame","Entry","Button","Radiobutton","Checkbutton","Spinbox","Progressbar","Combobox","Notebook","Treeview","Scrollbar","Label","Separator","Style"):

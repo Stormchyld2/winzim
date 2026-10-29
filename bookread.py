@@ -8,15 +8,22 @@ DJVU, LIT and CBR have no reader; they stay download-only.
 """
 import base64
 import html
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import mimetypes
 import posixpath
 import re
 import struct
 import xml.etree.ElementTree as ET
+
+import prefs
 import zipfile
 from urllib.parse import unquote
 
-READABLE = ("EPUB", "MOBI", "AZW3", "TXT", "FB2", "CBZ", "RTF")
+READABLE = ("EPUB", "MOBI", "AZW3", "TXT", "FB2", "CBZ", "RTF", "DJVU", "CBR", "LIT")
 MAX_INNER_MB = 600  # an EPUB/CBZ that unpacks bigger than this is not made readable
 
 MIME_BY_EXT = {"html": "text/html", "htm": "text/html", "xhtml": "application/xhtml+xml", "css": "text/css",
@@ -471,14 +478,104 @@ def read_cbz(path):
     return r
 
 
+# ------------------------------------------------------------------ formats that need a free helper program
+TOOLS = {"ddjvu": ("tool_ddjvu", "DjVuLibre", ["ddjvu"], [r"DjVuLibre\ddjvu.exe"]),
+         "7z": ("tool_7z", "7-Zip", ["7z", "7za", "7zz"], [r"7-Zip\7z.exe"]),
+         "calibre": ("tool_calibre", "Calibre", ["ebook-convert"], [r"Calibre2\ebook-convert.exe"])}
+
+
+def find_tool(key):
+    """Path of a helper program (the one chosen in Settings, else found automatically), or None."""
+    pref_key, _, names, win_paths = TOOLS[key]
+    chosen = prefs.get(pref_key)
+    if chosen:
+        return chosen if os.path.isfile(chosen) else None
+    for n in names:
+        p = shutil.which(n)
+        if p:
+            return p
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        for rel in win_paths:
+            if base and os.path.isfile(os.path.join(base, rel)):
+                return os.path.join(base, rel)
+    return None
+
+
+def _run(cmd, timeout=900):
+    flags = 0x08000000 if sys.platform == "win32" else 0   # no black console window
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=flags)
+    except subprocess.TimeoutExpired:
+        raise Unreadable("took too long to convert")
+    except OSError as e:
+        raise Unreadable(f"the helper program did not start ({e.__class__.__name__})")
+    return r
+
+
+def _need(key):
+    p = find_tool(key)
+    if not p:
+        raise Unreadable(f"needs {TOOLS[key][1]} (free) installed to be readable here")
+    return p
+
+
+def read_djvu(path):
+    ddjvu = _need("ddjvu")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "book.pdf")
+        r = _run([ddjvu, "-format=pdf", path, out])
+        if r.returncode != 0 or not os.path.isfile(out) or os.path.getsize(out) < 8:
+            raise Unreadable("DjVuLibre could not convert this file")
+        rd = Readable()
+        rd.add("book.pdf", "application/pdf", open(out, "rb").read())
+        rd.spine.append(("book.pdf", "Book"))
+    return rd
+
+
+def read_cbr(path):
+    if zipfile.is_zipfile(path):        # many .cbr files are really zip files
+        return read_cbz(path)
+    sz = _need("7z")
+    with tempfile.TemporaryDirectory() as tmp:
+        r = _run([sz, "x", "-y", "-o" + tmp, path])
+        if r.returncode != 0:
+            raise Unreadable("7-Zip could not open this comic (damaged or locked)")
+        imgs = []
+        for dp, _, fns in os.walk(tmp):
+            imgs += [os.path.join(dp, f) for f in fns if f.lower().rsplit(".", 1)[-1] in ("jpg", "jpeg", "png", "gif", "webp")]
+        if not imgs:
+            raise Unreadable("no pages found")
+        key = lambda p: [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", os.path.relpath(p, tmp))]
+        rd = Readable()
+        for k, p in enumerate(sorted(imgs, key=key), 1):
+            ext = p.rsplit(".", 1)[-1].lower()
+            img = f"p{k:04d}.{ext}"
+            rd.add(img, _mime(img), open(p, "rb").read())
+            page = f"p{k:04d}.html"
+            rd.add(page, "text/html", _page(f"Page {k}", f'<div style="text-align:center"><img src="{img}" alt="Page {k}" style="max-width:100%"></div>',
+                                            "<style>body{margin:0;background:#000}</style>"))
+            rd.spine.append((page, f"Page {k}"))
+    return rd
+
+
+def read_lit(path):
+    conv = _need("calibre")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "book.epub")
+        r = _run([conv, path, out])
+        if r.returncode != 0 or not os.path.isfile(out):
+            raise Unreadable("Calibre could not convert this file (it may be locked)")
+        return read_epub(out)
+
+
 READERS = {"EPUB": read_epub, "MOBI": read_mobi, "AZW3": read_mobi, "TXT": read_txt, "FB2": read_fb2,
-           "CBZ": read_cbz, "RTF": read_rtf}
+           "CBZ": read_cbz, "RTF": read_rtf, "DJVU": read_djvu, "CBR": read_cbr, "LIT": read_lit}
 
 
 def make_readable(fmt, path):
     """Return a Readable or raise Unreadable (with a short plain reason)."""
     fn = READERS.get(fmt)
-    if not fn:
+    if not fn or not prefs.get("zim_readers"):
         raise Unreadable("no reader for this format")
     try:
         return fn(path)

@@ -16,9 +16,11 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
 import flame
+import prefs
 import settings as appsettings
 from appinfo import CONTACT, VERSION
 from bookui import BookTab
+from settingsui import SettingsTab
 from crawler import Options, convert
 from preview import find_kiwix, open_in_kiwix, preview_in_browser
 from sitecheck import MB_PER_PAGE, check_site, estimate_size_text, whole_site_limits
@@ -295,17 +297,24 @@ class App(tk.Tk):
 
         self.books = BookTab(self.main_nb, self, ICONS)
         self.main_nb.add(self.books, text="Books")
+        self.settings = SettingsTab(self.main_nb, self)
+        self.main_nb.add(self.settings, text="Settings")
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(100, self.pump)
-        threading.Thread(target=self.check_docker, daemon=True).start()
         self.load_settings()
         self.apply_theme(self.dark)
+        if prefs.get("check_docker"):
+            threading.Thread(target=self.check_docker, daemon=True).start()
+        else:
+            self.docker_msg.set("Docker check is turned off (Settings > General).")
 
     # --------------------------------------------------------------- theme
     def apply_theme(self, dark):
         self.dark = bool(dark)
         p = self.pal = DARK if self.dark else LIGHT
+        if hasattr(self, "settings"):
+            self.settings.theme.set("dark" if self.dark else "light")
         st = ttk.Style(self)
         try:
             st.theme_use("clam")
@@ -575,6 +584,10 @@ class App(tk.Tk):
             self.detail.set(s["detail"])
         self.dark = s.get("theme", "dark") != "light"
         self.books.set_settings(s)
+        prefs.load(s)
+        prefs.apply_network()
+        if hasattr(self, "settings"):
+            self.settings.refresh()
         if s.get("advanced") and not self.adv_open:
             self.toggle_adv()
 
@@ -590,6 +603,9 @@ class App(tk.Tk):
         for n in FLAG_NAMES:
             data[n] = self.dv[n].get()
         data.update(self.books.get_settings())
+        if not prefs.get("remember"):   # keep only the program settings and the theme
+            data = {"theme": data["theme"]}
+        data.update(prefs.dump())
         appsettings.save(data)
 
     # ------------------------------------------------------ open the result
@@ -776,6 +792,7 @@ class App(tk.Tk):
             max_mb=self.to_int(self.max_mb, 0),
             max_minutes=self.to_int(self.max_minutes, 0),
             workers=min(16, max(1, self.to_int(self.workers, 4))),
+            delay=prefs.get("site_pause_ms") / 1000.0,
             path_scope=self.path_scope.get(),
             subdomains=self.subdomains.get(),
             skip_images=self.dv["skip_images"].get(), skip_media=self.dv["skip_media"].get(),
@@ -841,6 +858,8 @@ class App(tk.Tk):
                     self.on_check_result(*val)
                 elif kind == "book":
                     self.books.on_event(val)
+                elif kind == "settings":
+                    self.settings.on_event(val)
                 elif kind == "bookcheck":
                     self.books.on_check_result(*val)
                 elif kind == "docker":
@@ -940,11 +959,12 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, text)
 
     def on_close(self):
-        if self.running or self.books.running:
+        if self.running or self.books.running or self.settings.library.running:
             if not messagebox.askyesno(APP_NAME, "Something is still running. Cancel it and quit?"):
                 return
             self.cancel.set()
             self.books.cancel.set()
+            self.settings.library.cancel.set()
         self.save_settings()
         self.destroy()
 

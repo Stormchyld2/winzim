@@ -227,10 +227,15 @@ header.top:after{content:"";position:absolute;left:0;bottom:-1px;width:130px;hei
 main{max-width:1180px;margin:0 auto;padding:18px 22px 40px}
 .controls{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 14px}
 .controls input,.controls select{background:var(--field);color:var(--text);border:1px solid var(--border);border-radius:4px;
-padding:9px 11px;font:inherit}.controls input[type=search]{flex:1 1 100%}
+padding:9px 11px;font:inherit}.controls input[type=search]{flex:2 1 220px}
 .chk{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px;padding:0 4px}.controls .chk input{flex:none;width:auto;padding:0;accent-color:var(--amber)}.chk{white-space:nowrap}
 .sp{flex:1 1 20px}.rst{background:transparent;color:var(--amber);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font:inherit;cursor:pointer}
-.controls input{flex:1 1 280px}.controls input:focus,.controls select:focus{outline:1px solid var(--amber)}
+.controls input{flex:1 1 220px}
+.fp{position:relative}.fp summary{list-style:none;cursor:pointer;background:var(--field);border:1px solid var(--border);border-radius:4px;padding:9px 14px;color:var(--text);user-select:none}
+.fp summary::-webkit-details-marker{display:none}.fp summary:after{content:' \\25BE';color:var(--muted)}.fp[open] summary{border-color:var(--amber)}
+.panel{position:absolute;right:0;top:calc(100% + 6px);z-index:5;width:290px;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.panel label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:13px}.panel label.chk{flex-direction:row;font-size:14px}
+.panel select{width:100%}.controls input:focus,.controls select:focus{outline:1px solid var(--amber)}
 .count{color:var(--muted);font-size:13px;margin:0 0 10px}
 ul.grid{list-style:none;margin:0;padding:0;display:grid;align-items:start;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:14px}
 li.book a{display:block;height:auto!important;background:var(--panel);border:1px solid var(--border);border-radius:6px;overflow:hidden;color:var(--text);
@@ -302,7 +307,7 @@ function apply(){
   sorted.forEach(function(li){list.appendChild(li);});
   count.textContent='Showing '+shown+' of '+items.length+' books';
   empty.style.display=shown?'none':'';
-  var on=q.value||c||f||l||sz||p;reset.style.visibility=on?'visible':'hidden';
+  var on=q.value||c||f||l||sz||p;reset.disabled=!on;
 }
 [q,cat,fmt,lang,size,pd,sort,dir].forEach(function(el){if(!el)return;el.addEventListener('input',apply);el.addEventListener('change',apply);});
 reset.addEventListener('click',function(){q.value='';cat.value='';fmt.value='';if(lang)lang.value='';size.value='';pd.checked=false;apply();});
@@ -370,22 +375,22 @@ def render_index(books_, title="Recon Library", built=None):
     opts_f = '<option value="">All formats</option>' + "".join(f"<option>{f}</option>" for f in fmts)
     any_pd = any(is_pd(b) for b in books_)
     langs = sorted({lang_of(b) for b in books_ if lang_of(b)})
-    lang_sel = ('<select id="lang"><option value="">All languages</option>' + "".join(
-        f'<option value="{c}">{_e(LANG_NAMES.get(c, c))}</option>' for c in langs) + "</select>") if len(langs) > 1 else ""
+    lang_row = ('<label>Language<select id="lang"><option value="">All languages</option>' + "".join(
+        f'<option value="{c}">{_e(LANG_NAMES.get(c, c))}</option>' for c in langs) + "</select></label>") if len(langs) > 1 else ""
     body = (f'<header class="top">{FLAME}<div class="brand"><b>{_e(title)}</b><span>{len(books_)} books · {human_size(total)} · '
             f'built {built}</span></div></header><main><div class="controls">'
             f'<input id="q" type="search" placeholder="Search title, author or category" autocomplete="off">'
-            f'<select id="cat">{opts_c}</select><select id="fmt">{opts_f}</select>{lang_sel}'
+            f'<select id="cat">{opts_c}</select><select id="fmt">{opts_f}</select>'
             f'<select id="size"><option value="">Any size</option><option value="s">Under 10 MB</option>'
             f'<option value="m">10 - 100 MB</option><option value="l">Over 100 MB</option></select>'
+            f'<details class="fp"><summary>Filter &amp; sort</summary><div class="panel">'
+            f'{lang_row}'
             f'<label class="chk"><input type="checkbox" id="pd"{"" if any_pd else " disabled"}> Public domain only</label>'
-            f'<span class="sp"></span>'
-            f'<select id="sort" aria-label="Sort by"><option value="title">Sort by title</option><option value="author">Sort by author</option>'
-            f'<option value="year">Sort by year</option><option value="size">Sort by size</option>'
-            f'<option value="cat">Sort by category</option></select>'
-            f'<select id="dir" aria-label="Order"><option value="asc">Ascending (A-Z, oldest, smallest)</option>'
-            f'<option value="desc">Descending (Z-A, newest, largest)</option></select>'
-            f'<button type="button" id="reset" class="rst" style="visibility:hidden">Clear filters</button></div>'
+            f'<label>Sort by<select id="sort"><option value="title">Title</option><option value="author">Author</option>'
+            f'<option value="year">Year</option><option value="size">Size</option><option value="cat">Category</option></select></label>'
+            f'<label>Order<select id="dir"><option value="asc">Ascending (A-Z, oldest, smallest)</option>'
+            f'<option value="desc">Descending (Z-A, newest, largest)</option></select></label>'
+            f'<button type="button" id="reset" class="rst">Clear all filters</button></div></details></div>'
             f'<p class="count" id="count"></p><ul class="grid" id="list">{"".join(cards)}</ul>'
             f'<p class="empty" id="empty" style="display:none">No books match. Try fewer words.</p>'
             f'<footer>Made with {NAME} {VERSION} · {built}</footer></main>')

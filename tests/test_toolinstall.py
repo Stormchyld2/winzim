@@ -53,6 +53,17 @@ try:
     got = []
     toolinstall.install("calibre", url=base + "/setup", run=lambda c: got.append(c), find=lambda: "/x/ebook-convert")
     check("calibre uses msiexec", got and got[0][0] == "msiexec" and got[0][1] == "/i")
+    # an installer that needs administrator rights (Windows error 740) is run again through the permission prompt
+    asked = []
+    def run_740(cmd):
+        e = OSError(); e.winerror = 740; raise e
+    def run_admin(cmd):
+        asked.append(cmd)
+        os.makedirs(toolinstall.tool_dir("7z"), exist_ok=True)
+        open(os.path.join(toolinstall.tool_dir("7z"), "7z"), "w").write("x")
+    import shutil; shutil.rmtree(toolinstall.tool_dir("7z"), ignore_errors=True)
+    p = toolinstall.install("7z", url=base + "/setup", run=run_740, elevated=run_admin)
+    check("admin-only installer goes through the permission prompt", asked and asked[0][1] == "/S" and p, asked)
     # tiny download refused
     try:
         toolinstall.install("ddjvu", url=base + "/tiny", run=lambda c: None); ok = False

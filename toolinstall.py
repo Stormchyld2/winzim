@@ -95,11 +95,31 @@ def _real_run(cmd):
     return subprocess.run(cmd, stdin=subprocess.DEVNULL, timeout=1800, creationflags=0x08000000 if sys.platform == "win32" else 0).returncode
 
 
-def install(key, on_progress=None, cancel=None, run=None, opener=None, url=None, find=None):
+def _elevated_run(cmd):
+    """Run an installer that needs administrator rights: Windows shows its permission prompt, and we wait for it to finish."""
+    args = ",".join("'" + a.replace("'", "''") + "'" for a in cmd[1:])
+    ps = f"Start-Process -FilePath '{cmd[0]}' -Verb RunAs -Wait" + (f" -ArgumentList {args}" if args else "")
+    r = subprocess.run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps], timeout=1800,
+                       stdin=subprocess.DEVNULL, capture_output=True, creationflags=0x08000000)
+    return r.returncode
+
+
+def _run_asking_if_needed(run, cmd, elevated):
+    """Run cmd; if Windows says it needs administrator rights (error 740), run it again through the permission prompt."""
+    try:
+        return run(cmd)
+    except OSError as e:
+        if getattr(e, "winerror", None) == 740 or sys.platform == "win32":
+            return elevated(cmd)
+        raise
+
+
+def install(key, on_progress=None, cancel=None, run=None, opener=None, url=None, find=None, elevated=None):
     """Download and install one helper; returns the path of its program. `run(cmd)` and `url` are replaceable for tests."""
     import bookread
     spec = SPECS[key]
     run = run or _real_run
+    elevated = elevated or _elevated_run
     find = find or (lambda: installed_path(key) or bookread.find_tool(key))
     url = url or resolve_url(key, opener)
     target = tool_dir(key)
@@ -112,15 +132,15 @@ def install(key, on_progress=None, cancel=None, run=None, opener=None, url=None,
             os.makedirs(target, exist_ok=True)
             cmd = [f, "/S", "/D=" + target]               # quiet install into our own folder, no administrator needed
         try:
-            run(cmd)
+            _run_asking_if_needed(run, cmd, elevated)
         except Exception:
             pass
         p = find()
         if not p and spec["kind"] == "exe":
-            try:
-                run([f])                                  # the normal installer window; the person clicks through it
+            try:                                          # the normal installer window; the person clicks through it
+                _run_asking_if_needed(run, [f], elevated)
             except Exception as e:
-                raise InstallError(f"The installer would not start ({e.__class__.__name__}).")
+                raise InstallError(f"The installer would not start ({e.__class__.__name__}: {e}).")
             p = find()
         if not p:
             raise InstallError(f"The {spec['name']} installer finished but the program was not found. Install it with the Get it "

@@ -96,7 +96,7 @@ class SettingsTab(ttk.Frame):
         if key == "proxy":
             prefs.apply_network()
         if key == "tool_docker":
-            threading.Thread(target=self.app.check_docker, daemon=True).start()
+            self.app.recheck_docker()
         elif key.startswith("tool_"):
             self.refresh_tools()
         self.app.save_settings()
@@ -217,7 +217,8 @@ class SettingsTab(ttk.Frame):
         self._text(f, 10, "tool_docker", "docker.exe location (leave empty to find it automatically)", 48, browse=True)
         bar = ttk.Frame(f)
         bar.grid(row=11, column=0, columnspan=3, sticky="w", **PAD)
-        ttk.Button(bar, text="Check again", command=lambda: threading.Thread(target=self.app.check_docker, daemon=True).start()).pack(side="left")
+        self.app.docker_btn = ttk.Button(bar, text="Check again", command=self.app.recheck_docker)
+        self.app.docker_btn.pack(side="left")
         ttk.Button(bar, text="Get Docker Desktop", command=lambda: webbrowser.open(zimit_engine.DOCKER_URL)).pack(side="left", padx=8)
 
     def _cache_changed(self):

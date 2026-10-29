@@ -92,7 +92,7 @@ def download(url, dest, on_progress=None, cancel=None, opener=None):
 
 
 def _real_run(cmd):
-    return subprocess.run(cmd, timeout=1800, creationflags=0x08000000 if sys.platform == "win32" else 0).returncode
+    return subprocess.run(cmd, stdin=subprocess.DEVNULL, timeout=1800, creationflags=0x08000000 if sys.platform == "win32" else 0).returncode
 
 
 def install(key, on_progress=None, cancel=None, run=None, opener=None, url=None, find=None):

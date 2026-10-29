@@ -63,15 +63,25 @@ def find_docker(chosen=None):
     return None
 
 
+LAST_ERROR = [""]      # why the last Docker check failed, for the message in Settings
+
+
 def docker_status():
     """Returns (state, docker_path): state is 'ready', 'not_running' or 'missing'."""
     d = find_docker()
     if not d:
         return "missing", None
+    # Fast path: when the engine is running, Docker's connection point exists, and `docker info` (slow) is not needed.
+    for sock in (r"\\.\pipe\docker_engine", "/var/run/docker.sock"):
+        if os.path.exists(sock):
+            LAST_ERROR[0] = ""
+            return "ready", d
     try:
-        r = subprocess.run([d, "info"], capture_output=True, text=True, timeout=60, creationflags=NOWIN)
-    except Exception:
+        r = subprocess.run([d, "info"], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=NOWIN)
+    except Exception as e:
+        LAST_ERROR[0] = f"{e.__class__.__name__}: {e}"
         return "not_running", d
+    LAST_ERROR[0] = (r.stderr or "").strip().splitlines()[-1][:200] if r.returncode != 0 and (r.stderr or "").strip() else ""
     return ("ready" if r.returncode == 0 else "not_running"), d
 
 
@@ -223,7 +233,7 @@ def run_zimit(url, out_path, o, on_event, cancel):
 
     def run(cmd, label):
         on_event({"type": "phase", "text": label})
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                 encoding="utf-8", errors="replace", creationflags=NOWIN)
         done = threading.Event()
 
@@ -231,7 +241,7 @@ def run_zimit(url, out_path, o, on_event, cancel):
             while not done.is_set():
                 if cancel.is_set():
                     if cmd[1] == "run":
-                        subprocess.run([docker, "kill", container], capture_output=True, creationflags=NOWIN)
+                        subprocess.run([docker, "kill", container], capture_output=True, stdin=subprocess.DEVNULL, creationflags=NOWIN)
                     else:
                         proc.kill()
                     return
@@ -247,7 +257,7 @@ def run_zimit(url, out_path, o, on_event, cancel):
         if cancel.is_set():
             raise RuntimeError("Cancelled")
         if rc != 0:
-            have = subprocess.run([docker, "image", "inspect", IMAGE], capture_output=True, creationflags=NOWIN)
+            have = subprocess.run([docker, "image", "inspect", IMAGE], capture_output=True, stdin=subprocess.DEVNULL, creationflags=NOWIN)
             if have.returncode != 0:
                 raise RuntimeError("Couldn't download the crawler image. Check your internet connection and that "
                                    "Docker Desktop is running.\n\n" + "\n".join(tail[-4:]))

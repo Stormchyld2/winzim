@@ -508,7 +508,7 @@ def find_tool(key):
 def _run(cmd, timeout=900):
     flags = 0x08000000 if sys.platform == "win32" else 0   # no black console window
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout, creationflags=flags)
+        r = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout, creationflags=flags)
     except subprocess.TimeoutExpired:
         raise Unreadable("took too long to convert")
     except OSError as e:

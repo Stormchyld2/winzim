@@ -28,6 +28,7 @@ from settingsui import SettingsTab
 from crawler import Options, convert
 from preview import find_kiwix, open_in_kiwix, preview_in_browser
 from sitecheck import MB_PER_PAGE, check_site, estimate_size_text, whole_site_limits
+import zimit_engine
 from zimit_engine import docker_status, run_zimit
 
 APP_NAME = "Cindrix Recon"
@@ -786,8 +787,16 @@ class App(tk.Tk):
 
     # ------------------------------------------------------------ helpers
     def check_docker(self):
-        state, _ = docker_status()
-        self.q.put(("docker", state))
+        state, path = docker_status()
+        self.q.put(("docker", (state, path)))
+
+    def recheck_docker(self):
+        """The Settings 'Check again' button: show that something is happening, then show the result."""
+        self.docker_msg.set("Checking Docker Desktop... (this can take up to a minute if it is still starting)")
+        btn = getattr(self, "docker_btn", None)
+        if btn is not None:
+            btn.state(["disabled"])
+        threading.Thread(target=self.check_docker, daemon=True).start()
 
     def browse(self):
         d = filedialog.askdirectory(initialdir=self.folder.get() or None, title="Choose where to save the ZIM file")
@@ -951,10 +960,14 @@ class App(tk.Tk):
                 elif kind == "bookcheck":
                     self.books.on_check_result(*val)
                 elif kind == "docker":
+                    val, dpath = val
                     self.docker_state = val
+                    if getattr(self, "docker_btn", None) is not None:
+                        self.docker_btn.state(["!disabled"])
                     self.docker_msg.set({
-                        "ready": "Docker Desktop: ready.",
-                        "not_running": "Docker Desktop: installed but not running - start it before using the Cindrix Recon engine.",
+                        "ready": "Docker Desktop: ready" + (f" ({dpath})." if dpath else "."),
+                        "not_running": "Docker Desktop: installed but not running - start it before using the Cindrix Recon engine."
+                                       + (f"  (Docker said: {zimit_engine.LAST_ERROR[0]})" if zimit_engine.LAST_ERROR[0] else ""),
                         "missing": "Docker Desktop: not found - install it for the Cindrix Recon engine, or use the Built-in engine.",
                     }[val])
                     self.draw_banner()

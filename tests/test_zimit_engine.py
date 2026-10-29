@@ -36,6 +36,9 @@ if a[0] == "run":
     name = a[a.index("--name", a.index("zimit")) + 1]
     def j(msg, ctx="general", **det):
         print(json.dumps({"timestamp": "t", "logLevel": "info", "context": ctx, "message": msg, "details": det}), flush=True)
+    if mode == "reject" and ("--blockRules" in a or "--depth" in a):
+        print("error: unknown argument --blockRules", flush=True)
+        sys.exit(2)
     j("Crawl status", "crawlStatus", crawled=1, total=3, pending=2, failed=0)
     j("Page Finished", "pageStatus", page="https://example.com/")
     j("Page Load Failed", "pageStatus", page="https://example.com/bad")
@@ -44,6 +47,8 @@ if a[0] == "run":
             time.sleep(0.1)
         sys.exit(137)
     j("Crawl status", "crawlStatus", crawled=3, total=3, pending=0, failed=1)
+    if mode == "limit":
+        j("Crawl page limit reached, stopping")
     print("Starting warc2zim conversion")
     if mode == "nozim":
         sys.exit(1)
@@ -69,10 +74,24 @@ def test_pure():
     assert ev[0] == {"type": "row", "status": "Saved", "url": "https://x.org/a"}
     assert parse_line("not json {")[0]["type"] == "log"
     assert parse_line("") == []
+    o = Options(skip_images=True, skip_fonts=True, depth=3)
+    cmd = build_command("docker", "c", "/w", "https://a.org", "n", o)
+    assert cmd[cmd.index("--depth") + 1] == "3"
+    rules = [json.loads(cmd[i + 1]) for i, x in enumerate(cmd) if x == "--blockRules"]
+    assert len(rules) == 1 and rules[0]["type"] == "block"
+    import re
+    rx = re.compile(rules[0]["url"])
+    assert rx.search("https://a.org/x/pic.PNG".lower()) and rx.search("https://a.org/f.woff2?v=1")
+    assert not rx.search("https://a.org/page.html") and not rx.search("https://a.org/video.mp4")
+    assert "--blockRules" not in build_command("docker", "c", "/w", "https://a.org", "n", o, extras=False)
+    assert "--blockRules" not in build_command("docker", "c", "/w", "https://a.org", "n", Options())
+    ev = parse_line(json.dumps({"message": "Crawl size limit reached, interrupting", "details": {}}))
+    assert {"type": "limit", "which": "size"} in ev, ev
+    assert parse_line("nothing to see")[0]["type"] == "log" and len(parse_line("nothing to see")) == 1
     print("pure tests ok")
 
 
-def run_fake(mode, cancel_after=None):
+def run_fake(mode, cancel_after=None, opts=None):
     tmp = tempfile.mkdtemp()
     fake_dir = os.path.join(tmp, "fake")
     os.makedirs(fake_dir)
@@ -89,7 +108,7 @@ def run_fake(mode, cancel_after=None):
     if cancel_after:
         threading.Timer(cancel_after, cancel.set).start()
     try:
-        res = run_zimit("https://example.com", out, Options(workers=2), events.append, cancel)
+        res = run_zimit("https://example.com", out, opts or Options(workers=2), events.append, cancel)
         return res, events, out, out_dir, None
     except RuntimeError as e:
         return None, events, out, out_dir, str(e)
@@ -106,6 +125,22 @@ def test_fake_docker():
     assert any(e.get("status") == "Failed" for e in ev if e["type"] == "row")
     assert any("Building ZIM" in e.get("text", "") for e in ev if e["type"] == "phase")
     print("fake docker: success path ok")
+
+    res, ev, out, out_dir, err = run_fake("reject", opts=Options(workers=2, skip_images=True, depth=2))
+    assert err is None and res["size"] == 700, err
+    assert any(e["type"] == "warn" for e in ev), "no warning after retry"
+    calls = open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines()
+    runs = [c for c in calls if c.startswith("run")]
+    assert len(runs) == 2 and "--blockRules" in runs[0] and "--blockRules" not in runs[1], runs
+    print("fake docker: rejected-options retry ok")
+
+    res, ev, out, out_dir, err = run_fake("limit")
+    assert res["limit_hit"] == "pages", res
+    res, ev, out, out_dir, err = run_fake("ok", opts=Options(workers=2, max_pages=3))
+    assert res["limit_hit"] == "pages", res
+    res, ev, out, out_dir, err = run_fake("ok")
+    assert res["limit_hit"] is None, res
+    print("fake docker: limit detection ok")
 
     res, ev, out, out_dir, err = run_fake("nozim")
     assert err and "without creating a ZIM" in err and not os.path.exists(out)

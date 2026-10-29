@@ -7,6 +7,7 @@ import datetime
 import gzip
 import hashlib
 import html as htmllib
+import io
 import mimetypes
 import os
 import posixpath
@@ -28,6 +29,83 @@ from zimwriter import ZimWriter
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WinZim/1.0"
 MAX_RESOURCE = 50 * 1024 * 1024
 HTML_MIMES = ("text/html", "application/xhtml+xml")
+REMOVE = object()   # sentinel: drop this reference from the saved page
+
+_EXT = {
+    "image": {"png", "jpg", "jpeg", "jpe", "gif", "webp", "avif", "bmp", "ico", "svg", "tif", "tiff", "heic"},
+    "media": {"mp4", "webm", "mov", "m4v", "avi", "mkv", "mpg", "mpeg", "wmv", "flv", "mp3", "ogg", "oga",
+              "ogv", "wav", "m4a", "flac", "aac", "wma", "opus"},
+    "font": {"woff", "woff2", "ttf", "otf", "eot"},
+    "doc": {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "zip", "7z", "rar", "gz", "tar",
+            "epub", "iso", "exe", "msi", "dmg", "apk"},
+}
+_FONT_MIMES = {"application/font-woff", "application/font-woff2", "application/x-font-ttf",
+               "application/x-font-woff", "application/vnd.ms-fontobject", "application/x-font-opentype"}
+_DOC_MIMES = {"application/pdf", "application/zip", "application/x-zip-compressed", "application/epub+zip",
+              "application/msword", "application/x-7z-compressed", "application/vnd.rar", "application/x-rar-compressed",
+              "application/x-msdownload", "application/x-iso9660-image"}
+
+
+def category_of_url(url):
+    last = urlsplit(url).path.lower().rsplit("/", 1)[-1]
+    ext = last.rsplit(".", 1)[-1] if "." in last else ""
+    for cat, exts in _EXT.items():
+        if ext in exts:
+            return cat
+    return None
+
+
+def category_of_mime(mime):
+    m = (mime or "").lower()
+    if m.startswith("image/"):
+        return "image"
+    if m.startswith(("video/", "audio/")):
+        return "media"
+    if m.startswith("font/") or m in _FONT_MIMES:
+        return "font"
+    if m in _DOC_MIMES or m.startswith(("application/vnd.openxmlformats", "application/vnd.ms-")):
+        return "doc"
+    return None
+
+
+def skip_category(o, cat):
+    return bool((cat == "image" and o.skip_images) or (cat == "media" and o.skip_media)
+                or (cat == "font" and o.skip_fonts) or (cat == "doc" and o.skip_docs))
+
+
+def shrink_image(data, mime, max_px=800, quality=60):
+    """Downscale/recompress a picture. Returns (data, mime); unchanged if Pillow is missing
+    or the result wouldn't be smaller."""
+    try:
+        from PIL import Image, ImageOps
+    except Exception:
+        return data, mime
+    try:
+        im = Image.open(io.BytesIO(data))
+        if getattr(im, "is_animated", False):
+            return data, mime
+        im = ImageOps.exif_transpose(im)
+        if max(im.size) > max_px:
+            im.thumbnail((max_px, max_px))
+        out = io.BytesIO()
+        new_mime = mime
+        if mime == "image/jpeg":
+            im.convert("RGB").save(out, "JPEG", quality=quality, optimize=True)
+        elif mime == "image/webp":
+            im.save(out, "WEBP", quality=quality)
+        else:  # PNG
+            has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+            if not has_alpha and len(data) > 150_000:
+                im.convert("RGB").save(out, "JPEG", quality=quality, optimize=True)
+                new_mime = "image/jpeg"
+            else:
+                im.save(out, "PNG", optimize=True)
+        new = out.getvalue()
+        if len(new) < len(data):
+            return new, new_mime
+    except Exception:
+        pass
+    return data, mime
 
 
 @dataclass
@@ -41,6 +119,15 @@ class Options:
     subdomains: bool = False
     title: str = ""
     language: str = "eng"
+    # --- detail level (smaller ZIMs)
+    skip_images: bool = False
+    skip_media: bool = False       # video and audio
+    skip_fonts: bool = False
+    skip_docs: bool = False        # PDFs, archives, office files, installers
+    shrink_images: bool = False    # downscale + recompress pictures (built-in engine, needs Pillow)
+    no_scripts: bool = False       # drop JavaScript (built-in engine)
+    max_file_mb: int = 0           # skip any single file larger than this (0 = no limit)
+    depth: int = 0                 # clicks from the start page (0 = no limit)
 
 
 # ---------------------------------------------------------------- URL utils
@@ -126,6 +213,8 @@ def css_map_urls(text, base_url, fn):
         if not absu.lower().startswith(("http://", "https://")):
             return m.group(0)
         new = fn(absu, "asset")
+        if new is REMOVE:
+            return 'url("data:,")'
         if new is None:
             return m.group(0)
         return 'url("%s")' % new.replace('"', "%22")
@@ -136,6 +225,8 @@ def css_map_urls(text, base_url, fn):
         if not absu.lower().startswith(("http://", "https://")):
             return m.group(0)
         new = fn(absu, "asset")
+        if new is REMOVE:
+            return '@import "data:,"'
         if new is None:
             return m.group(0)
         return '@import "%s"' % new.replace('"', "%22")
@@ -144,13 +235,17 @@ def css_map_urls(text, base_url, fn):
     return CSS_URL_RE.sub(repl_url, text)
 
 
-def map_html_urls(text, base_url, fn, strip=False):
+def map_html_urls(text, base_url, fn, strip=False, skip_scripts=False):
     """Find every URL in an HTML document and pass it to fn(abs_url, kind).
 
     kind is 'page' or 'asset'. If fn returns a string the URL is replaced by
     it, if None it is left unchanged. With strip=True, <base>, integrity and
-    crossorigin are removed (needed for faithful offline copies).
+    crossorigin are removed (needed for faithful offline copies). If fn returns
+    REMOVE the reference is dropped. With skip_scripts=True all <script> blocks
+    are removed from the page.
     """
+    if skip_scripts:
+        text = re.sub(r"(?is)<script\b.*?</script\s*>", "", text)
     m = BASE_RE.search(text)
     if m:
         base_url = urljoin(base_url, htmllib.unescape(m.group(1)))
@@ -163,6 +258,8 @@ def map_html_urls(text, base_url, fn, strip=False):
         if not absu.lower().startswith(("http://", "https://")):
             return None
         new = fn(absu, kind)
+        if new is REMOVE:
+            return REMOVE
         return None if new is None else _esc(new)
 
     def do_srcset(raw):
@@ -173,10 +270,15 @@ def map_html_urls(text, base_url, fn, strip=False):
                 continue
             parts = cand.split(None, 1)
             new = do_url(parts[0], "asset")
+            if new is REMOVE:
+                changed = True
+                continue
             if new is not None:
                 changed = True
                 parts[0] = new
             out.append(" ".join(parts))
+        if changed and not out:
+            return REMOVE
         return ", ".join(out) if changed else None
 
     def sub_tag(tm):
@@ -218,13 +320,15 @@ def map_html_urls(text, base_url, fn, strip=False):
                     new = do_url(raw, kind)
             elif an in ("srcset", "data-srcset") and name in ("img", "source"):
                 new = do_srcset(htmllib.unescape(raw))
-                if new is not None:
+                if new is not None and new is not REMOVE:
                     new = _esc(new)
             elif an == "style" and "url(" in raw.lower():
                 orig = htmllib.unescape(raw)
                 res = css_map_urls(orig, base_url, fn)
                 if res != orig:
                     new = res.replace("&", "&amp;").replace('"', "'").replace("<", "%3C")
+            if new is REMOVE:
+                return ""
             if new is None:
                 return am.group(0)
             return f'{am.group(1)}{am.group(2)}"{new}"'
@@ -255,6 +359,11 @@ class Crawler:
         self.bytes = 0
         self.pages = 0
         self.files = 0
+        self.skipped = set()       # URLs deliberately not saved (detail level / file-size cap)
+        self.skipped_count = 0
+        self.limit_hit = None      # 'pages' | 'size' | 'time' when a limit stopped the crawl
+        self.depth_cut = False     # some pages were deeper than the depth setting
+        self.saved_by_shrinking = 0
         sp = urlsplit(self.start)
         host = sp.hostname or ""
         self.start_host = host[4:] if host.startswith("www.") else host
@@ -265,6 +374,7 @@ class Crawler:
         kw.setdefault("pages", self.pages)
         kw.setdefault("files", self.files)
         kw.setdefault("bytes", self.bytes)
+        kw.setdefault("skipped", self.skipped_count)
         self.on_event(kw)
 
     def in_scope(self, url):
@@ -293,9 +403,12 @@ class Crawler:
                     "Accept-Encoding": "gzip, deflate"})
                 with self.opener.open(req, timeout=30) as r:
                     final = normalize(r.geturl())
-                    data = r.read(MAX_RESOURCE + 1)
-                    if len(data) > MAX_RESOURCE:
-                        return {"url": url, "kind": kind, "ok": False, "error": "too large"}
+                    cap = MAX_RESOURCE
+                    if self.o.max_file_mb:
+                        cap = min(cap, self.o.max_file_mb * 1024 * 1024)
+                    data = r.read(cap + 1)
+                    if len(data) > cap:
+                        return {"url": url, "kind": kind, "ok": False, "error": "too large", "skip": True, "final": final}
                     enc = (r.headers.get("Content-Encoding") or "").lower()
                     if enc == "gzip":
                         data = gzip.decompress(data)
@@ -310,13 +423,16 @@ class Crawler:
                     charset = cm.group(1) if cm else None
                 if not mime or mime == "application/octet-stream":
                     mime = mimetypes.guess_type(urlsplit(final).path)[0] or "application/octet-stream"
+                cat = category_of_mime(mime) or category_of_url(final)
+                if skip_category(self.o, cat) and url != self.start:
+                    return {"url": url, "kind": kind, "ok": False, "error": "skipped", "skip": True, "final": final}
                 path = os.path.join(self.workdir, f"{n}.bin")
                 with open(path, "wb") as f:
                     f.write(data)
                 links = []
                 if mime in HTML_MIMES:
                     text = decode_bytes(data, charset)
-                    map_html_urls(text, final, lambda u, k: (links.append((u, k)), None)[1])
+                    map_html_urls(text, final, lambda u, k: (links.append((u, k)), None)[1], skip_scripts=self.o.no_scripts)
                 elif mime == "text/css":
                     text = decode_bytes(data, charset)
                     css_map_urls(text, final, lambda u, k: (links.append((u, k)), None)[1])
@@ -333,7 +449,7 @@ class Crawler:
 
     def crawl(self):
         limit_bytes = self.o.max_mb * 1024 * 1024 if self.o.max_mb else 0
-        pending = deque([(self.start, "page")])
+        pending = deque([(self.start, "page", 0)])
         seen = {self.start}
         queued_pages = 1
         counter = 0
@@ -342,20 +458,30 @@ class Crawler:
             futs = {}
             while (pending or futs) and not self.cancel.is_set():
                 while pending and len(futs) < self.o.workers * 2:
-                    if (limit_bytes and self.bytes >= limit_bytes) or (deadline and time.time() >= deadline):
+                    if limit_bytes and self.bytes >= limit_bytes:
+                        self.limit_hit = self.limit_hit or "size"
                         pending.clear()
                         break
-                    url, kind = pending.popleft()
+                    if deadline and time.time() >= deadline:
+                        self.limit_hit = self.limit_hit or "time"
+                        pending.clear()
+                        break
+                    url, kind, depth = pending.popleft()
                     counter += 1
-                    futs[ex.submit(self._work, url, kind, counter)] = (url, kind)
+                    futs[ex.submit(self._work, url, kind, counter)] = (url, kind, depth)
                 if not futs:
                     break
                 done, _ = wait(list(futs), timeout=0.3, return_when=FIRST_COMPLETED)
                 for f in done:
-                    url, kind = futs.pop(f)
+                    url, kind, depth = futs.pop(f)
                     res = f.result()
                     if not res["ok"]:
-                        if res.get("error") != "cancelled":
+                        if res.get("skip"):
+                            self.skipped.add(url)
+                            if res.get("final"):
+                                self.skipped.add(res["final"])
+                            self.skipped_count += 1
+                        elif res.get("error") != "cancelled":
                             self.failed += 1
                             self.emit(type="fetch", ok=False, url=url, kind=kind, error=res["error"])
                         continue
@@ -376,14 +502,26 @@ class Crawler:
                         u = normalize(u)
                         if u in seen:
                             continue
+                        cat = category_of_url(u)
+                        if cat and skip_category(self.o, cat):
+                            seen.add(u)
+                            self.skipped.add(u)
+                            self.skipped_count += 1
+                            continue
+                        child_depth = depth
                         if k == "page":
                             if not self.in_scope(u):
                                 continue
+                            child_depth = depth + 1
+                            if self.o.depth and child_depth > self.o.depth:
+                                self.depth_cut = True
+                                continue
                             if self.o.max_pages and queued_pages >= self.o.max_pages:
+                                self.limit_hit = self.limit_hit or "pages"
                                 continue
                             queued_pages += 1
                         seen.add(u)
-                        pending.append((u, k))
+                        pending.append((u, k, child_depth))
             if self.cancel.is_set():
                 for f in futs:
                     f.cancel()
@@ -418,11 +556,13 @@ class Crawler:
                 if "#" in absu:
                     absu, frag = absu.split("#", 1)
                     frag = "#" + frag
-                u = normalize(absu)
-                u = self.alias.get(u, u)
+                u0 = normalize(absu)
+                u = self.alias.get(u0, u0)
                 if u in paths:
                     rel = posixpath.relpath(paths[u], cur_dir)
                     return quote(rel, safe="/") + frag
+                if kind == "asset" and (u0 in self.skipped or u in self.skipped):
+                    return REMOVE
                 return absu + frag
             return fn
 
@@ -455,7 +595,7 @@ class Crawler:
                     title = re.sub(r"\s+", " ", htmllib.unescape(tm.group(1))).strip()
                 if url == start_final and not meta_title:
                     meta_title = title
-                text = map_html_urls(text, url, resolver_for(path), strip=True)
+                text = map_html_urls(text, url, resolver_for(path), strip=True, skip_scripts=self.o.no_scripts)
                 inject = '<meta charset="utf-8">'
                 hm = re.search(r"<head\b[^>]*>", text, re.I)
                 text = text[:hm.end()] + inject + text[hm.end():] if hm else inject + text
@@ -464,6 +604,10 @@ class Crawler:
             elif mime == "text/css":
                 text = css_map_urls(decode_bytes(data), url, resolver_for(path))
                 data = text.encode("utf-8")
+            elif self.o.shrink_images and mime in ("image/jpeg", "image/png", "image/webp"):
+                before = len(data)
+                data, mime = shrink_image(data, mime)
+                self.saved_by_shrinking += max(0, before - len(data))
             writer.add_entry(path, title, mime, data)
             done += 1
             if done % 25 == 0 or done == total:

@@ -41,13 +41,39 @@ class CheckResult:
     pages: int = None        # pages listed in the site's sitemap (None = unknown)
 
 
-def estimate_size_text(pages):
-    """Rough size range text for a page count (text-heavy pages ~0.3 MB, image-heavy ~2 MB incl. assets)."""
-    lo, hi = pages * 0.3, pages * 2.0
+# Rough MB per page (text + its pictures/files) for each detail level: (low, high)
+MB_PER_PAGE = {"full": (0.3, 2.0), "lite": (0.15, 0.8), "nopic": (0.05, 0.15), "min": (0.03, 0.1)}
+LEVEL_NAMES = {"full": "Full", "lite": "Lite", "nopic": "No pictures", "min": "Minimum"}
 
-    def fmt(mb):
-        return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{max(1, round(mb))} MB"
-    return f"about {pages:,} pages, roughly {fmt(lo)} to {fmt(hi)}"
+
+def _fmt_mb(mb):
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{max(1, round(mb))} MB"
+
+
+def estimate_size_text(pages, level="full"):
+    """Rough size range text for a page count at a detail level."""
+    lo, hi = MB_PER_PAGE.get(level, MB_PER_PAGE["full"])
+    return f"about {pages:,} pages, roughly {_fmt_mb(pages * lo)} to {_fmt_mb(pages * hi)}"
+
+
+def estimate_all_levels(pages):
+    """One line per detail level, e.g. 'Full 100 MB-680 MB | Lite ...'."""
+    parts = []
+    for k in ("full", "lite", "nopic", "min"):
+        lo, hi = MB_PER_PAGE[k]
+        parts.append(f"{LEVEL_NAMES[k]} {_fmt_mb(pages * lo)}-{_fmt_mb(pages * hi)}")
+    return "  |  ".join(parts)
+
+
+# "Whole site" limits when the sitemap size is known / unknown
+WHOLE_SITE_FALLBACK = (20000, 20 * 1024)   # pages, MB
+
+
+def whole_site_limits(pages):
+    """(max_pages, max_mb) for the Whole site preset. Sitemap known -> ~20% headroom, no size cap."""
+    if pages:
+        return int(pages * 1.2) + 10, 0
+    return WHOLE_SITE_FALLBACK
 
 
 def count_sitemap_pages(origin, robots_text, ua, max_fetches=10):
@@ -238,7 +264,7 @@ def check_site(url, engine="zimit", timeout=15):
             pages = count_sitemap_pages(origin, robots_text, ua)
         except Exception:
             pages = None
-    est = [f"The site's sitemap lists {estimate_size_text(pages)}."] if pages else []
+    est = [f"The site's sitemap lists {estimate_size_text(pages)}.", "By detail level: " + estimate_all_levels(pages)] if pages else []
 
     if not any(l in ("warn", "bad") for l, _ in findings):
         links = len(re.findall(r"(?i)<a\s[^>]*href=", body))

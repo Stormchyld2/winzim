@@ -35,13 +35,20 @@ class Tk(W):
 
 asked = []
 tk = types.ModuleType("tkinter"); ttk = types.ModuleType("tkinter.ttk")
-tk.Tk, tk.Label, tk.StringVar, tk.BooleanVar = Tk, W, Var, Var
-for n in ("Frame","LabelFrame","Entry","Button","Radiobutton","Checkbutton","Spinbox","Progressbar","Combobox","Notebook","Treeview","Scrollbar","Label"):
+tk.Tk, tk.Label, tk.StringVar, tk.BooleanVar, tk.Canvas = Tk, W, Var, Var, W
+for n in ("Frame","LabelFrame","Entry","Button","Radiobutton","Checkbutton","Spinbox","Progressbar","Combobox","Notebook","Treeview","Scrollbar","Label","Separator","Style"):
     setattr(ttk, n, W)
+class Style(W):
+    def configure(self, *a, **k): pass
+    def map(self, *a, **k): pass
+    def theme_use(self, *a, **k): pass
+ttk.Style = Style
 mb = types.ModuleType("tkinter.messagebox")
 mb.showerror = mb.showinfo = lambda *a, **k: None
 def askyesno(*a, **k): asked.append(a); return False
 mb.askyesno = askyesno
+answers = {"yncancel": None}
+mb.askyesnocancel = lambda *a, **k: answers["yncancel"]
 fd = types.ModuleType("tkinter.filedialog"); fd.askdirectory = lambda **k: ""
 st = types.ModuleType("tkinter.scrolledtext"); st.ScrolledText = W
 tk.ttk, tk.messagebox, tk.filedialog, tk.scrolledtext = ttk, mb, fd, st
@@ -69,7 +76,7 @@ a.url.set(base + "/ok")
 a.run_check((base + "/ok", "zimit"))
 assert pump_until(a, lambda: a.check_res is not None)
 assert a.check_res.level == "ok" and a.check_icon.opts["text"] == appmod.ICONS["ok"][0], a.check_icon.opts
-assert a.check_icon.opts["fg"] == appmod.ICONS["ok"][1]
+assert a.check_icon.opts["fg"] == a.pal[appmod.ICONS["ok"][1]] == appmod.DARK["green"]
 print("green check shown:", a.check_icon.opts["text"], a.check_msg.get()[:60])
 # red + gating: Convert asks, user says no -> nothing starts
 a.url.set(base + "/401")
@@ -99,10 +106,94 @@ b.max_pages.set("77")                      # manual edit -> Custom
 assert b.preset.get() == appmod.CUSTOM, b.preset.get()
 b.max_pages.set("1000")                    # back to a preset's values -> that preset again
 assert b.preset.get() == "This section only (the URL's folder)", b.preset.get()
+assert b.dark is True and b.pal is appmod.DARK, "dark must be the default"
 b.folder.set("D:\\MyZims"); b.engine.set("builtin"); b.workers.set("7"); b.toggle_adv()
 b.save_settings()
 c = appmod.App()
 assert c.folder.get() == "D:\\MyZims" and c.engine.get() == "builtin" and c.workers.get() == "7" and c.adv_open
 assert c.preset.get() == "This section only (the URL's folder)"
 print("presets and remembered settings ok")
+
+# --- theme: dark by default, toggle, persisted
+c.toggle_theme()
+assert c.dark is False and c.pal is appmod.LIGHT and c.check_icon.opts["bg"] == appmod.LIGHT["bg"]
+c.save_settings()
+d = appmod.App()
+assert d.dark is False and d.pal is appmod.LIGHT, "theme not remembered"
+d.toggle_theme(); assert d.dark is True and d.check_icon.opts["bg"] == appmod.DARK["bg"]
+print("theme default/toggle/remember ok")
+
+# --- smarter Whole site limits
+from sitecheck import CheckResult
+e = appmod.App()
+e.preset.set(appmod.WHOLE); e.apply_preset()
+assert (e.max_pages.get(), e.max_mb.get()) == ("20000", "20480"), (e.max_pages.get(), e.max_mb.get())   # no sitemap fallback
+e.check_key = ("u", "zimit")
+e.on_check_result(("u", "zimit"), CheckResult("ok", "fine", [], 1000))
+assert (e.max_pages.get(), e.max_mb.get()) == ("1210", "0"), (e.max_pages.get(), e.max_mb.get())
+assert e.preset.get() == appmod.WHOLE, e.preset.get()
+assert "1,000 pages" in e.est_msg.get() and "Full" not in e.est_msg.get()
+e.max_pages.set("5"); assert e.preset.get() == appmod.CUSTOM
+e.on_check_result(("u", "zimit"), CheckResult("ok", "fine", [], 4000))
+assert e.max_pages.get() == "5", "custom limits must not be overwritten"
+e.preset.set("Everything, no limits (can be huge)"); e.apply_preset()
+assert (e.max_pages.get(), e.max_mb.get()) == ("0", "0")
+print("whole-site automatic limits ok")
+
+# --- detail levels
+f = appmod.App()
+f.check_key = ("u", "zimit")
+f.on_check_result(("u", "zimit"), CheckResult("ok", "fine", [], 1000))
+sizes = {}
+for name, key in (("Full (everything)", "full"), ("Lite (smaller pictures, no video)", "lite"),
+                  ("No pictures (text and layout only)", "nopic"), ("Minimum (smallest file)", "min")):
+    f.detail.set(name); f.apply_detail()
+    assert f.level_key() == key, (name, f.level_key())
+    sizes[key] = f.est_msg.get()
+assert len(set(sizes.values())) == 4, sizes
+f.detail.set("Minimum (smallest file)"); f.apply_detail()
+assert f.dv["skip_images"].get() and f.dv["skip_media"].get() and f.dv["skip_fonts"].get() and f.dv["no_scripts"].get()
+assert not f.dv["skip_docs"].get() and not f.dv["shrink_images"].get() and f.max_file_mb.get() == "5"
+f.dv["skip_fonts"].set(False)                       # manual edit -> Custom
+assert f.detail.get() == appmod.CUSTOM_DETAIL, f.detail.get()
+f.dv["skip_fonts"].set(True)                        # back to the level's exact settings -> that level
+assert f.detail.get() == "Minimum (smallest file)", f.detail.get()
+f.detail.set("Full (everything)"); f.apply_detail()
+assert not any(v.get() for v in f.dv.values()) and f.max_file_mb.get() == "0"
+print("detail levels, custom flip and estimates ok")
+
+# --- options reach the engine, remembered, and Lite on Zimit asks first
+import tempfile as _t
+captured = {}
+appmod.threading.Thread = lambda target=None, args=(), daemon=None: types.SimpleNamespace(
+    start=lambda: captured.update(args=args), target=target)
+g = appmod.App()
+captured.clear()
+g.url.set("https://example.org"); g.folder.set(_t.mkdtemp())
+g.detail.set("Lite (smaller pictures, no video)"); g.apply_detail(); g.depth.set("3"); g.engine.set("zimit")
+asked.clear(); answers["yncancel"] = None                    # Cancel -> nothing starts
+g.start(); assert not g.running and not captured
+answers["yncancel"] = True                                   # Yes -> switches to Built-in and starts
+g.start()
+assert g.running and g.engine.get() == "builtin", (g.running, g.engine.get())
+o = captured["args"][3]
+assert o.shrink_images and o.skip_media and not o.skip_images and o.depth == 3, o
+g.finish_ui()
+g.save_settings()
+h = appmod.App()
+assert h.detail.get() == "Lite (smaller pictures, no video)" and h.dv["shrink_images"].get() and h.depth.get() == "3"
+print("options passed to engine and remembered ok")
+
+# --- limit-reached warning in the finished message
+h.run_notes = []
+h.on_done("x.zim", 1000, 50, 10, 0, "pages", False, 4)
+assert "Stopped at the page limit; the site has more than was saved." in h.result.get(), h.result.get()
+assert h.result_label.opts["style"] == "Warn.TLabel"
+h.run_notes = []; h.result_label.configure(style="Result.TLabel")
+h.on_done("x.zim", 1000, 50, 10, 0, None, False, 0)
+assert "Stopped" not in h.result.get() and h.result_label.opts["style"] == "Result.TLabel"
+h.run_notes = []
+h.on_done("x.zim", 1000, 50, 10, 0, "time", True, 0)
+assert "time limit" in h.result.get() and "Depth setting" in h.result.get()
+print("limit warning ok")
 print("ALL APP LOGIC TESTS PASSED")

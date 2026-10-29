@@ -1,7 +1,7 @@
 ; Inno Setup script: builds installer\WinZim-Setup.exe from dist\WinZim.exe
 [Setup]
 AppName=WinZim
-AppVersion=1.1.0
+AppVersion=1.2.0
 AppPublisher=WinZim
 DefaultDirName={autopf}\WinZim
 DefaultGroupName=WinZim

@@ -43,7 +43,34 @@ def docker_status():
     return ("ready" if r.returncode == 0 else "not_running"), d
 
 
-def build_command(docker, container, work_dir, url, name, o):
+_BLOCK_EXT = {
+    "images": "png|jpe?g|jpe|gif|webp|avif|bmp|ico|svg|tiff?|heic",
+    "media": "mp4|webm|mov|m4v|avi|mkv|mpe?g|wmv|flv|mp3|ogg|oga|ogv|wav|m4a|flac|aac|wma|opus",
+    "fonts": "woff2?|ttf|otf|eot",
+    "docs": "pdf|docx?|xlsx?|pptx?|odt|ods|zip|7z|rar|gz|tar|epub|iso|exe|msi|dmg|apk",
+}
+
+
+def block_patterns(o):
+    """Regexes for files the chosen detail level leaves out."""
+    flags = (("images", o.skip_images), ("media", o.skip_media), ("fonts", o.skip_fonts), ("docs", o.skip_docs))
+    exts = [_BLOCK_EXT[k] for k, on in flags if on]
+    if not exts:
+        return []
+    return [r"\.(" + "|".join(exts) + r")(\?|#|$)"]
+
+
+def optional_flags(o):
+    """Flags that depend on Browsertrix options; they are dropped and retried if Zimit rejects them."""
+    out = []
+    if o.depth:
+        out += ["--depth", str(o.depth)]
+    for pat in block_patterns(o):
+        out += ["--blockRules", json.dumps({"url": pat, "type": "block"})]
+    return out
+
+
+def build_command(docker, container, work_dir, url, name, o, extras=True):
     cmd = [docker, "run", "--rm", "--name", container, "--shm-size=1g",
            "-v", f"{work_dir}:/output", IMAGE, "zimit",
            "--seeds", url, "--name", name, "--output", "/output",
@@ -56,10 +83,38 @@ def build_command(docker, container, work_dir, url, name, o):
         cmd += ["--timeLimit", str(o.max_minutes * 60)]
     scope = "prefix" if o.path_scope else ("domain" if o.subdomains else "host")
     cmd += ["--scopeType", scope]
+    if extras:
+        cmd += optional_flags(o)
     return cmd
 
 
+def detect_limit(line):
+    """Return 'pages'/'size'/'time' if a log line says a crawl limit was reached, else None."""
+    low = line.lower()
+    if "limit" not in low or not any(w in low for w in ("reached", "hit", "exceed", "stopping", "interrupt")):
+        return None
+    if "time" in low:
+        return "time"
+    if "size" in low:
+        return "size"
+    if "page" in low:
+        return "pages"
+    return None
+
+
 def parse_line(line):
+    """Turn one line of output into events, adding a 'limit' event when a limit message is seen."""
+    evs = _parse_line(line)
+    for e in list(evs):
+        if e["type"] == "log":
+            w = detect_limit(e["text"])
+            if w:
+                evs.append({"type": "limit", "which": w})
+                break
+    return evs
+
+
+def _parse_line(line):
     """Turn one line of Zimit/Browsertrix output into zero or more GUI events."""
     line = line.strip()
     if not line:
@@ -121,12 +176,14 @@ def run_zimit(url, out_path, o, on_event, cancel):
     container = f"winzim-{stamp}"
     work = os.path.join(folder, f".winzim_work_{stamp}")
     os.makedirs(work, exist_ok=True)
-    tail, stats = [], {"crawled": 0, "failed": 0}
+    tail, stats = [], {"crawled": 0, "failed": 0, "limit": None}
 
     def on_line(raw):
         for ev in parse_line(raw):
             if ev["type"] == "stats":
                 stats["crawled"], stats["failed"] = ev["crawled"], ev["failed"]
+            if ev["type"] == "limit":
+                stats["limit"] = stats["limit"] or ev["which"]
             if ev["type"] == "log":
                 tail.append(ev["text"])
                 del tail[:-12]
@@ -164,13 +221,28 @@ def run_zimit(url, out_path, o, on_event, cancel):
                                    "Docker Desktop is running.\n\n" + "\n".join(tail[-4:]))
             on_event({"type": "log", "text": "Using the previously downloaded Zimit image."})
 
-        cmd = build_command(docker, container, work, url, name, o)
+        def list_zims():
+            return [os.path.join(work, f) for f in os.listdir(work) if f.lower().endswith(".zim")]
+
+        extras = bool(optional_flags(o))
+        cmd = build_command(docker, container, work, url, name, o, extras=True)
         on_event({"type": "log", "text": "> " + " ".join(cmd)})
         rc = run(cmd, "Crawling the site with Zimit...")
         if cancel.is_set():
             raise RuntimeError("Cancelled")
+        if extras and rc != 0 and not list_zims():
+            # Zimit may not accept the depth / block-rule flags; retry once without them.
+            on_event({"type": "log", "text": "Zimit didn't accept the detail/depth options - retrying without them. "
+                                             "Pictures and files will not be filtered this run."})
+            on_event({"type": "warn", "text": "Zimit ignored the detail level / depth options, so this run saved "
+                                              "everything it normally would."})
+            cmd = build_command(docker, container, work, url, name, o, extras=False)
+            on_event({"type": "log", "text": "> " + " ".join(cmd)})
+            rc = run(cmd, "Crawling the site with Zimit...")
+            if cancel.is_set():
+                raise RuntimeError("Cancelled")
 
-        zims = [os.path.join(work, f) for f in os.listdir(work) if f.lower().endswith(".zim")]
+        zims = list_zims()
         if not zims:
             raise RuntimeError(f"Zimit ended (exit code {rc}) without creating a ZIM file.\n\n"
                                + "\n".join(tail[-6:]))
@@ -178,6 +250,10 @@ def run_zimit(url, out_path, o, on_event, cancel):
         if os.path.exists(out_path):
             os.remove(out_path)
         shutil.move(newest, out_path)
-        return {"size": os.path.getsize(out_path), "pages": stats["crawled"], "failed": stats["failed"]}
+        limit = stats["limit"]
+        if not limit and o.max_pages and stats["crawled"] >= o.max_pages:
+            limit = "pages"
+        return {"size": os.path.getsize(out_path), "pages": stats["crawled"], "failed": stats["failed"],
+                "limit_hit": limit}
     finally:
         shutil.rmtree(work, ignore_errors=True)

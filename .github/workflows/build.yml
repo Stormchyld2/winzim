@@ -21,6 +21,7 @@ jobs:
           python tests/test_zimit_engine.py
           python tests/test_sitecheck.py
           python tests/test_features.py
+          python tests/test_detail.py
           python tests/test_app_logic.py
       - name: Build exe
         run: python -m PyInstaller --onefile --windowed --name WinZim app.py

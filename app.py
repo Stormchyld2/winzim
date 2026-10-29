@@ -123,6 +123,13 @@ class App(tk.Tk):
         self.title(f"{APP_NAME} - site and book collection")
         self.set_window_icon()
         self.geometry("880x800")
+        try:                                   # open maximized (the size above is what "restore" goes back to)
+            self.state("zoomed")
+        except tk.TclError:
+            try:
+                self.attributes("-zoomed", True)
+            except tk.TclError:
+                pass
         self.minsize(800, 680)
         self.q = queue.Queue()
         self.cancel = threading.Event()
@@ -392,13 +399,16 @@ class App(tk.Tk):
         st.configure("Main.TNotebook", background=p["bg"], bordercolor=p["border"], tabmargins=(8, 6, 0, 0))
         st.configure("Main.TNotebook.Tab", background=p["bg"], foreground=p["muted"], padding=(26, 8),
                      font=("Segoe UI", 10, "bold"), bordercolor=p["border"])
-        st.map("Main.TNotebook.Tab", foreground=[("selected", p["amber"])], background=[("selected", p["panel"])])
+        # tabs keep one size: the selected tab must not grow (themes enlarge it by default) or change padding
+        st.map("Main.TNotebook.Tab", foreground=[("selected", p["amber"])], background=[("selected", p["panel"])],
+               expand=[("selected", (0, 0, 0, 0))], padding=[("selected", (26, 8))])
         st.configure("Seg.TButton", background=p["field"], foreground=p["muted"], bordercolor=p["border"], padding=(16, 4))
         st.map("Seg.TButton", background=[("active", p["hover"])])
         st.configure("SegOn.TButton", background=p["sel"] if self.dark else "#f3e6c4", foreground=p["amber"],
                      bordercolor=p["amber"], font=("Segoe UI", 10, "bold"), padding=(16, 4))
         st.map("SegOn.TButton", background=[("active", p["sel"] if self.dark else "#f3e6c4")])
-        st.map("TNotebook.Tab", foreground=[("selected", p["amber"])], background=[("selected", p["panel"])])
+        st.map("TNotebook.Tab", foreground=[("selected", p["amber"])], background=[("selected", p["panel"])],
+               expand=[("selected", (0, 0, 0, 0))], padding=[("selected", (16, 5))])
         st.configure("Treeview", background=p["panel"], fieldbackground=p["panel"], foreground=p["text"],
                      rowheight=22, bordercolor=p["border"])
         st.map("Treeview", background=[("selected", p["sel"])], foreground=[("selected", p["text"])])

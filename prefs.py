@@ -30,6 +30,7 @@ DEFAULTS = {
     "tool_ddjvu": "",            # blank = look for it automatically
     "tool_7z": "",
     "tool_calibre": "",
+    "tool_docker": "",           # blank = find Docker Desktop automatically
     # zim library (taking books out of a ZIM)
     "lib_multi": False,          # show checkboxes and the bulk buttons
     "lib_zim": "",

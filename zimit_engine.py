@@ -14,19 +14,51 @@ IMAGE = "ghcr.io/openzim/zimit"
 NOWIN = 0x08000000 if os.name == "nt" else 0
 DOCKER_URL = "https://www.docker.com/products/docker-desktop/"
 
-_WIN_DOCKER_PATHS = (
-    r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
-    r"C:\ProgramData\DockerDesktop\version-bin\docker.exe",
-)
+_WIN_DOCKER_TAIL = (r"Docker\Docker\resources\bin\docker.exe",)
 
 
-def find_docker():
+def docker_candidates():
+    """Every place Docker Desktop's docker.exe is known to live on Windows (all-users and per-user installs)."""
+    out = []
+    env = os.environ
+    for var in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+        base = env.get(var)
+        if base:
+            out += [os.path.join(base, t) for t in _WIN_DOCKER_TAIL]
+    out += [os.path.join(r"C:\Program Files", t) for t in _WIN_DOCKER_TAIL]
+    out.append(r"C:\ProgramData\DockerDesktop\version-bin\docker.exe")
+    if env.get("LOCALAPPDATA"):                      # "install for me only" copy of Docker Desktop
+        out.append(os.path.join(env["LOCALAPPDATA"], "Programs", "DockerDesktop", "resources", "bin", "docker.exe"))
+        out.append(os.path.join(env["LOCALAPPDATA"], "Docker", "wsl", "docker.exe"))
+    out.append(os.path.join(env.get("USERPROFILE", ""), ".docker", "bin", "docker.exe"))
+    for root_name, sub in (("HKEY_LOCAL_MACHINE", r"SOFTWARE\Docker Inc.\Docker\1.0"),
+                           ("HKEY_CURRENT_USER", r"SOFTWARE\Docker Inc.\Docker\1.0")):
+        try:
+            import winreg
+            with winreg.OpenKey(getattr(winreg, root_name), sub) as k:
+                app_path = winreg.QueryValueEx(k, "AppPath")[0]
+            out.append(os.path.join(app_path, "resources", "bin", "docker.exe"))
+        except Exception:
+            pass
+    return out
+
+
+def find_docker(chosen=None):
+    """docker.exe: the path chosen in Settings, else PATH, else the usual Windows install places."""
+    if chosen is None:
+        try:
+            import prefs
+            chosen = prefs.get("tool_docker")
+        except Exception:
+            chosen = ""
+    if chosen:
+        return chosen if os.path.isfile(chosen) else None
     p = shutil.which("docker")
     if p:
         return p
     if os.name == "nt":
-        for c in _WIN_DOCKER_PATHS:
-            if os.path.exists(c):
+        for c in docker_candidates():
+            if c and os.path.isfile(c):
                 return c
     return None
 
@@ -37,7 +69,7 @@ def docker_status():
     if not d:
         return "missing", None
     try:
-        r = subprocess.run([d, "info"], capture_output=True, text=True, timeout=25, creationflags=NOWIN)
+        r = subprocess.run([d, "info"], capture_output=True, text=True, timeout=60, creationflags=NOWIN)
     except Exception:
         return "not_running", d
     return ("ready" if r.returncode == 0 else "not_running"), d

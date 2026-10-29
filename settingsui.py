@@ -13,6 +13,7 @@ import books
 import crawlcache
 import jobs
 import prefs
+import zimit_engine
 import settings as appsettings
 import zimlibrary
 from appinfo import CONTACT, NAME, VERSION
@@ -94,7 +95,9 @@ class SettingsTab(ttk.Frame):
         prefs.set(key, self.vars[key].get())
         if key == "proxy":
             prefs.apply_network()
-        if key.startswith("tool_"):
+        if key == "tool_docker":
+            threading.Thread(target=self.app.check_docker, daemon=True).start()
+        elif key.startswith("tool_"):
             self.refresh_tools()
         self.app.save_settings()
 
@@ -211,8 +214,11 @@ class SettingsTab(ttk.Frame):
         ttk.Label(row, textvariable=self.cache_info).pack(side="left", padx=8)
         self._head(f, 8, "Cindrix Recon engine (Docker)")
         ttk.Label(f, textvariable=self.app.docker_msg).grid(row=9, column=0, columnspan=3, sticky="w", **PAD)
-        ttk.Button(f, text="Check again", command=lambda: threading.Thread(target=self.app.check_docker, daemon=True).start()).grid(
-            row=10, column=0, sticky="w", **PAD)
+        self._text(f, 10, "tool_docker", "docker.exe location (leave empty to find it automatically)", 48, browse=True)
+        bar = ttk.Frame(f)
+        bar.grid(row=11, column=0, columnspan=3, sticky="w", **PAD)
+        ttk.Button(bar, text="Check again", command=lambda: threading.Thread(target=self.app.check_docker, daemon=True).start()).pack(side="left")
+        ttk.Button(bar, text="Get Docker Desktop", command=lambda: webbrowser.open(zimit_engine.DOCKER_URL)).pack(side="left", padx=8)
 
     def _cache_changed(self):
         if self._loading:

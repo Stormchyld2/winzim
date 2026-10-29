@@ -102,14 +102,19 @@ def default_filename(url):
 
 class App(tk.Tk):
     def set_window_icon(self):
-        """The flame instead of Tk's default feather icon. Never stops the program if the file is missing."""
+        """The flame instead of Tk's default feather icon. Drawn in code (no file needed); never stops the program."""
+        try:
+            import base64
+            import flameimg
+            self._icons = [tk.PhotoImage(data=base64.b64encode(flameimg.png_bytes(flameimg.render(s, s))).decode("ascii"))
+                           for s in (16, 24, 32, 48, 64, 128)]
+            self.iconphoto(True, *self._icons)
+            return
+        except Exception:
+            pass
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
         try:
-            if sys.platform == "win32":
-                self.iconbitmap(os.path.join(base, "assets", "cindrix.ico"))
-            else:
-                self._icon_img = tk.PhotoImage(file=os.path.join(base, "assets", "cindrix.png"))
-                self.iconphoto(True, self._icon_img)
+            self.iconbitmap(os.path.join(base, "assets", "cindrix.ico"))
         except Exception:
             pass
 
@@ -454,6 +459,23 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    def draw_flame(self, c, x, y, w, h):
+        """Anti-aliased flame picture (Pillow); plain shapes if Pillow is not there."""
+        try:
+            import base64
+            import flameimg
+            pw, ph = int(w), int(h)
+            key = (pw, ph)
+            if getattr(self, "_flame_key", None) != key:
+                self._flame_img = tk.PhotoImage(data=flameimg.photo_data(pw, ph))
+                self._flame_key = key
+            c.create_image(x, y, image=self._flame_img, anchor="nw")
+            return
+        except Exception:
+            pass
+        for segs, col in flame.LAYERS:
+            c.create_polygon(flame.outline(segs, x, y, w, h), fill=col, outline="")
+
     def draw_banner(self):
         p, c = self.pal, self.banner
         c.configure(bg=p["banner"])
@@ -464,8 +486,7 @@ class App(tk.Tk):
             w = 880
         c.create_line(0, 47, w, 47, fill=p["border"])
         c.create_rectangle(0, 46, 120, 48, fill=p["amber"], width=0)
-        c.create_polygon(flame.outline(flame.OUTER, 15, 5, 26, 38), fill=p["amber"], outline="")
-        c.create_polygon(flame.outline(flame.INNER, 15, 5, 26, 38), fill=p["flame2"], outline="")
+        self.draw_flame(c, 15, 5, 26, 38)
         c.create_text(50, 17, text="Cindrix Recon", anchor="w", fill=p["text"], font=("Segoe UI", 14, "bold"))
         c.create_text(51, 35, text="Site and book collection", anchor="w", fill=p["muted"], font=("Segoe UI", 9))
         # theme switch (right side)

@@ -13,6 +13,18 @@ INNER = [((0.52, 0.50), (0.60, 0.60), (0.78, 0.68), (0.72, 0.84)),
          ((0.30, 0.82), (0.30, 0.68), (0.46, 0.62), (0.52, 0.50))]
 
 
+def scaled(segs, k, ox=0.5, oy=1.0):
+    """The same shape shrunk by k about the point (ox, oy): used for the middle layer of the flame."""
+    def p(pt):
+        return (ox + (pt[0] - ox) * k, oy + (pt[1] - oy) * k)
+    return [tuple(p(pt) for pt in seg) for seg in segs]
+
+
+MIDDLE = scaled(OUTER, 0.72)
+# back to front: deep orange body, amber middle, pale core
+LAYERS = [(OUTER, "#c9780f"), (MIDDLE, "#e9a82e"), (INNER, "#ffe08a")]
+
+
 def _bez(seg, n):
     (x0, y0), (x1, y1), (x2, y2), (x3, y3) = seg
     pts = []
@@ -39,5 +51,5 @@ def svg(w=40, h=50):
         for (_, c1, c2, e) in segs:
             p += f"C{c1[0] * w:.1f} {c1[1] * h:.1f} {c2[0] * w:.1f} {c2[1] * h:.1f} {e[0] * w:.1f} {e[1] * h:.1f}"
         return p + "Z"
-    return (f'<svg class="flame" viewBox="0 0 {w} {h}" aria-hidden="true"><path d="{path(OUTER)}" fill="#d9a02b"/>'
-            f'<path d="{path(INNER)}" fill="#ffd36b"/></svg>')
+    paths = "".join(f'<path d="{path(segs)}" fill="{col}"/>' for segs, col in LAYERS)
+    return f'<svg class="flame" viewBox="0 0 {w} {h}" aria-hidden="true">{paths}</svg>'

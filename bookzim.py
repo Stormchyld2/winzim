@@ -455,7 +455,7 @@ def make_icon_png(size=48):
     def poly(segs):
         pts = flame.outline(segs, size * 0.17, size * 0.07, size * 0.66, size * 0.86, 10)
         return list(zip(pts[0::2], pts[1::2]))
-    outer, inner = poly(flame.OUTER), poly(flame.INNER)
+    layers = [(poly(segs), tuple(int(col[i:i + 2], 16) for i in (1, 3, 5))) for segs, col in flame.LAYERS]
 
     def inside(pts, fx, fy):
         res, j = False, len(pts) - 1
@@ -466,7 +466,7 @@ def make_icon_png(size=48):
                 res = not res
             j = i
         return res
-    bg, amber, light = (19, 24, 20), (217, 160, 43), (255, 211, 107)
+    bg = (19, 24, 20)
     raw = bytearray()
     for y in range(size):
         raw.append(0)
@@ -474,7 +474,10 @@ def make_icon_png(size=48):
             acc = [0, 0, 0]
             for sy in (0.17, 0.5, 0.83):
                 for sx in (0.17, 0.5, 0.83):
-                    col = light if inside(inner, x + sx, y + sy) else amber if inside(outer, x + sx, y + sy) else bg
+                    col = bg
+                    for pts, c in layers:
+                        if inside(pts, x + sx, y + sy):
+                            col = c
                     for k in range(3):
                         acc[k] += col[k]
             raw += bytes(v // 9 for v in acc)

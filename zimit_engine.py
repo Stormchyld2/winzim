@@ -390,9 +390,25 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
             while not done.is_set():
                 if cancel.is_set():
                     if cmd[1] == "run":
-                        subprocess.run([docker, "kill", container], capture_output=True, stdin=subprocess.DEVNULL, creationflags=NOWIN)
-                    else:
+                        on_event({"type": "phase", "text": "Stopping the crawler..."})
+                        for attempt in range(3):         # the container, by every means, until it is really gone
+                            for stop in ([docker, "kill", container], [docker, "rm", "-f", container]):
+                                try:
+                                    r = subprocess.run(stop, capture_output=True, text=True, timeout=30,
+                                                       stdin=subprocess.DEVNULL, creationflags=NOWIN)
+                                    if r.returncode != 0 and (r.stderr or "").strip():
+                                        on_event({"type": "log", "text": "docker: " + r.stderr.strip().splitlines()[-1]})
+                                except Exception as e:
+                                    on_event({"type": "log", "text": f"docker stop attempt failed ({e.__class__.__name__})"})
+                            try:
+                                proc.wait(timeout=5)
+                                return
+                            except subprocess.TimeoutExpired:
+                                pass
+                    try:
                         proc.kill()
+                    except Exception:
+                        pass
                     return
                 time.sleep(0.3)
         threading.Thread(target=watch, daemon=True).start()

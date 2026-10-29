@@ -1028,6 +1028,8 @@ class App(tk.Tk):
 
     def on_event(self, e):
         t = e.get("type")
+        if self.cancel.is_set() and t in ("row", "stats", "fetch"):
+            return          # after Cancel, stop showing pages that were already on their way
         if t == "fetch":  # built-in engine
             if e["ok"]:
                 if str(e.get("mime", "")).startswith(("text/html", "application/xhtml")):

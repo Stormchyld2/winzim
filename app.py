@@ -15,7 +15,16 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from urllib.parse import urlsplit
 
 from crawler import Options, convert
+from sitecheck import check_site
 from zimit_engine import docker_status, run_zimit
+
+ICONS = {  # level -> (symbol, colour, tooltip title)
+    "idle": ("?", "#888888", "Not checked yet"),
+    "checking": ("...", "#888888", "Checking the site..."),
+    "ok": ("✔", "#1a9a3a", "Go ahead"),
+    "warn": ("!", "#d98a00", "Proceed with caution"),
+    "bad": ("✖", "#c62828", "Likely to fail"),
+}
 
 APP_NAME = "WinZim"
 
@@ -55,9 +64,21 @@ class App(tk.Tk):
         e = ttk.Entry(top, textvariable=self.url)
         e.grid(row=0, column=1, sticky="ew", pady=3, padx=(6, 0))
         e.bind("<Return>", lambda _e: self.start())
+        e.bind("<FocusOut>", lambda _e: self.schedule_check(0))
         e.focus_set()
         self.convert_btn = ttk.Button(top, text="Convert", command=self.start)
         self.convert_btn.grid(row=0, column=2, padx=(6, 0))
+        # site check indicator: fixed spot right of Convert
+        self.check_icon = tk.Label(top, text="?", width=3, font=("Segoe UI", 18, "bold"), fg="#888888", cursor="hand2")
+        self.check_icon.grid(row=0, column=3, padx=(6, 0))
+        self.check_icon.bind("<Button-1>", lambda _e: self.show_check_details())
+        self.check_msg = tk.StringVar(value="")
+        ttk.Label(top, textvariable=self.check_msg, foreground="gray", wraplength=640, justify="left"
+                  ).grid(row=3, column=1, columnspan=3, sticky="w", padx=(6, 0))
+        self.check_res = None
+        self.check_key = None
+        self._check_job = None
+        self.url.trace_add("write", lambda *_: self.schedule_check(900))
 
         ttk.Label(top, text="Save to folder:").grid(row=1, column=0, sticky="w")
         self.folder = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Documents", "ZIM"))
@@ -76,6 +97,7 @@ class App(tk.Tk):
                         variable=self.engine, value="zimit").pack(anchor="w", padx=8, pady=(4, 0))
         ttk.Radiobutton(eng, text="Built-in (no Docker) - simple websites only",
                         variable=self.engine, value="builtin").pack(anchor="w", padx=8)
+        self.engine.trace_add("write", lambda *_: self.schedule_check(200))
         self.docker_msg = tk.StringVar(value="Checking Docker Desktop...")
         ttk.Label(eng, textvariable=self.docker_msg, foreground="gray").pack(anchor="w", padx=28, pady=(0, 4))
 
@@ -145,6 +167,59 @@ class App(tk.Tk):
         self.after(100, self.pump)
         threading.Thread(target=self.check_docker, daemon=True).start()
 
+    # ---------------------------------------------------------- site check
+    def normalized_url(self):
+        url = self.url.get().strip()
+        if url and "://" not in url:
+            url = "https://" + url
+        p = urlsplit(url)
+        if p.scheme in ("http", "https") and p.hostname and ("." in p.hostname or p.hostname == "localhost"):
+            return url
+        return None
+
+    def set_icon(self, level, msg=""):
+        sym, color, _ = ICONS[level]
+        self.check_icon.configure(text=sym, fg=color)
+        self.check_msg.set(msg)
+
+    def schedule_check(self, delay_ms):
+        if self._check_job:
+            self.after_cancel(self._check_job)
+            self._check_job = None
+        url = self.normalized_url()
+        if not url:
+            self.check_res = self.check_key = None
+            self.set_icon("idle", "")
+            return
+        key = (url, self.engine.get())
+        if key == self.check_key and self.check_res is not None:
+            return
+        self._check_job = self.after(delay_ms, lambda: self.run_check(key))
+
+    def run_check(self, key):
+        self._check_job = None
+        self.check_key, self.check_res = key, None
+        self.set_icon("checking", "Checking the site for logins and blocking...")
+        url, engine = key
+        threading.Thread(target=lambda: self.q.put(("check", (key, check_site(url, engine)))), daemon=True).start()
+
+    def on_check_result(self, key, res):
+        if key != self.check_key:
+            return  # URL or engine changed while checking
+        self.check_res = res
+        self.set_icon(res.level, res.summary + "  (click the icon for details)")
+
+    def show_check_details(self):
+        r = self.check_res
+        if r is None:
+            self.schedule_check(0)
+            return
+        title = ICONS[r.level][2]
+        body = r.summary + ("\n\n" + "\n".join("- " + d for d in r.details) if r.details else "")
+        body += ("\n\nThis is a quick check of the first page. A green check means no obvious blockers were found, "
+                 "not a guarantee.")
+        messagebox.showinfo(f"{APP_NAME} - {title}", body)
+
     # ------------------------------------------------------------ helpers
     def check_docker(self):
         state, _ = docker_status()
@@ -190,6 +265,12 @@ class App(tk.Tk):
         if p.scheme not in ("http", "https") or not p.hostname or ("." not in p.hostname and p.hostname != "localhost"):
             messagebox.showerror(APP_NAME, "Please enter a full website address, like https://example.com")
             return
+        res = self.check_res if self.check_key == (url, self.engine.get()) else None
+        if res is not None and res.level == "bad":
+            if not messagebox.askyesno(
+                    APP_NAME, f"The site check says this will probably fail:\n\n{res.summary}\n\nConvert anyway?",
+                    icon="warning"):
+                return
         folder = self.folder.get().strip()
         if not folder:
             self.browse()
@@ -260,6 +341,8 @@ class App(tk.Tk):
                     self.on_done(*val)
                 elif kind == "error":
                     self.on_error(val)
+                elif kind == "check":
+                    self.on_check_result(*val)
                 elif kind == "docker":
                     self.docker_msg.set({
                         "ready": "Docker Desktop: ready.",

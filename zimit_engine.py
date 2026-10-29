@@ -11,7 +11,8 @@ import subprocess
 import threading
 import time
 
-IMAGE = "ghcr.io/openzim/zimit"
+IMAGE = "ghcr.io/openzim/zimit"          # where the crawler is downloaded from
+LOCAL_TAG = "cindrixrecon/crawler:latest"  # the name this program runs it under (what Docker Desktop shows)
 NOWIN = 0x08000000 if os.name == "nt" else 0
 DOCKER_URL = "https://www.docker.com/products/docker-desktop/"
 
@@ -146,11 +147,11 @@ def optional_flags(o):
     return out
 
 
-def build_command(docker, container, work_dir, url, name, o, extras=True, legacy=False, build=False):
+def build_command(docker, container, work_dir, url, name, o, extras=True, legacy=False, build=False, image=None):
     """legacy=True uses the old --sizeLimit/--timeLimit names (older crawler images); the current ones are the Soft variants,
     which stop the crawl and still save the ZIM."""
     cmd = [docker, "run", "--rm", "--name", container, "--shm-size=1g",
-           "-v", f"{work_dir}:/output", IMAGE, "zimit",
+           "-v", f"{work_dir}:/output", image or IMAGE, "zimit",
            "--seeds", url, "--name", name, "--output", "/output",
            "--workers", str(max(1, o.workers))]
     if build:      # a fixed build folder (inside the mounted folder) that the crawler keeps, so a later run can continue
@@ -462,12 +463,20 @@ def run_zimit(url, out_path, o, on_event, cancel, resume=True):
                                    "Docker Desktop is running.\n\n" + "\n".join(tail[-4:]))
             on_event({"type": "log", "text": "Using the previously downloaded crawler image."})
 
+        image = IMAGE
+        try:         # give the downloaded crawler a Cindrix name, so Docker Desktop lists the run as cindrixrecon/crawler
+            t = subprocess.run([docker, "tag", IMAGE, LOCAL_TAG], capture_output=True, stdin=subprocess.DEVNULL, creationflags=NOWIN)
+            if t.returncode == 0:
+                image = LOCAL_TAG
+        except Exception:
+            pass
+
         def list_zims():
             return [os.path.join(work, f) for f in os.listdir(work) if f.lower().endswith(".zim")]
 
         extras, legacy, dropped = bool(optional_flags(o)), False, set()
         for _attempt in range(4):
-            cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy, build=True)
+            cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy, build=True, image=image)
             if dropped:
                 cmd = drop_flags(cmd, dropped)
             on_event({"type": "log", "text": "> " + " ".join(cmd)})

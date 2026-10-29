@@ -27,7 +27,7 @@ mode = os.environ.get("FAKE_MODE", "ok")
 open(os.path.join(d, "calls.log"), "a").write(" ".join(a) + "\n")
 if a[0] == "image" and mode == "noimage" and not os.path.exists(os.path.join(d, "pulled")):
     sys.exit(1)
-if a[0] in ("info", "image"):
+if a[0] in ("info", "image", "tag"):
     sys.exit(0)
 if a[0] == "pull":
     open(os.path.join(d, "pulled"), "w").write("1")
@@ -166,6 +166,12 @@ def test_fake_docker():
     assert err is None and res["size"] == 700, err
     assert any("--pageLimit" in e.get("text", "") for e in ev if e["type"] == "warn"), "no warning for dropped flag"
     print("fake docker: unknown option dropped ok")
+
+    run_fake("ok")
+    runs = [c for c in open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines() if c.startswith("run")]
+    assert any("tag ghcr.io/openzim/zimit cindrixrecon/crawler:latest" in c for c in open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines())
+    assert runs and "cindrixrecon/crawler:latest zimit" in runs[0], runs
+    print("fake docker: runs under the Cindrix image name ok")
 
     # default: look for a newer crawler every run; switched off: use the local copy; missing: always download
     import prefs

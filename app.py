@@ -1045,9 +1045,11 @@ class App(tk.Tk):
             self.add_row(e["status"], e["url"], e.get("error", False))
         elif t == "stats":
             self.counts.set(f"Crawled: {e['crawled']} of {e['total']}    Waiting: {e['pending']}    Failed: {e['failed']}")
-            if e.get("total"):
-                self.progress.stop()
-                self.progress.configure(mode="determinate", maximum=max(1, e["total"]), value=e["crawled"])
+            # The total keeps growing while the crawler discovers pages, so a filling bar would be misleading (and it
+            # blinked at both ends once the value passed the maximum): keep the bouncing bar and let the numbers say it.
+            if str(self.progress.cget("mode")) != "indeterminate":
+                self.progress.configure(mode="indeterminate")
+                self.progress.start(12)
         elif t == "log":
             self.add_log(e["text"])
         elif t == "warn":

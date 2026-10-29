@@ -12,4 +12,11 @@ os.environ["LOCALAPPDATA"] = d; os.environ["ProgramFiles"] = d
 c = z.docker_candidates()
 assert any("Programs" in x and "DockerDesktop" in x for x in c), "per-user install checked"
 assert any(x.startswith(d) and "Docker\\Docker" in x for x in c), "ProgramFiles variable honoured"
+import time
+slow = os.path.join(d, "docker"); open(slow, "w").write("#!/bin/sh\nsleep 30\n"); os.chmod(slow, 0o755)
+prefs.set("tool_docker", slow); z.INFO_TIMEOUT_S = 2
+t0 = time.time(); st = z.docker_status()
+assert st[0] == "not_running" and time.time() - t0 < 6, "a hung docker info must not block the check"
+assert "no answer" in z.LAST_ERROR[0]
+prefs.set("tool_docker", "")
 print("ALL PASSED")

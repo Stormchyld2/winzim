@@ -64,6 +64,7 @@ def find_docker(chosen=None):
     return None
 
 
+INFO_TIMEOUT_S = 20
 LAST_ERROR = [""]      # why the last Docker check failed, for the message in Settings
 
 
@@ -77,13 +78,25 @@ def docker_status():
         if os.path.exists(sock):
             LAST_ERROR[0] = ""
             return "ready", d
+    # `docker info` can hang when Docker Desktop is half-started, so it is never allowed to block: no output pipes (a hung
+    # child can keep them open and freeze the wait), a short deadline, and the process is killed if it overruns.
     try:
-        r = subprocess.run([d, "info"], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=NOWIN)
+        p = subprocess.Popen([d, "info"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=NOWIN)
     except Exception as e:
         LAST_ERROR[0] = f"{e.__class__.__name__}: {e}"
         return "not_running", d
-    LAST_ERROR[0] = (r.stderr or "").strip().splitlines()[-1][:200] if r.returncode != 0 and (r.stderr or "").strip() else ""
-    return ("ready" if r.returncode == 0 else "not_running"), d
+    try:
+        rc = p.wait(timeout=INFO_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        try:
+            p.kill()
+        except Exception:
+            pass
+        LAST_ERROR[0] = f"no answer after {INFO_TIMEOUT_S} seconds - Docker Desktop may still be starting"
+        return "not_running", d
+    LAST_ERROR[0] = "" if rc == 0 else f"docker info failed (exit code {rc})"
+    return ("ready" if rc == 0 else "not_running"), d
 
 
 _BLOCK_EXT = {

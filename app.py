@@ -803,7 +803,7 @@ class App(tk.Tk):
 
     def recheck_docker(self):
         """The Settings 'Check again' button: show that something is happening, then show the result."""
-        self.docker_msg.set("Checking Docker Desktop... (up to 20 seconds)")
+        self.docker_msg.set("Checking Docker Desktop... (up to a minute)")
         btn = getattr(self, "docker_btn", None)
         if btn is not None:
             btn.state(["disabled"])

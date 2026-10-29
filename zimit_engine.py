@@ -64,8 +64,29 @@ def find_docker(chosen=None):
     return None
 
 
-INFO_TIMEOUT_S = 20
+INFO_TIMEOUT_S = 60
 LAST_ERROR = [""]      # why the last Docker check failed, for the message in Settings
+
+
+_PIPES = (r"\\.\pipe\dockerDesktopLinuxEngine", r"\\.\pipe\docker_engine")
+
+
+def _pipe_exists(name):
+    """Does a Windows named pipe exist? (os.path.exists can say no for a pipe that is busy.)"""
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        if k.WaitNamedPipeW(name, 1):
+            return True
+        return ctypes.GetLastError() != 2          # 2 = no such pipe; 121 (timeout) / 231 (busy) mean it is there
+    except Exception:
+        return os.path.exists(name)
+
+
+def engine_socket_exists():
+    if os.name == "nt":
+        return any(_pipe_exists(p) for p in _PIPES)
+    return os.path.exists("/var/run/docker.sock")
 
 
 def docker_status():
@@ -74,10 +95,9 @@ def docker_status():
     if not d:
         return "missing", None
     # Fast path: when the engine is running, Docker's connection point exists, and `docker info` (slow) is not needed.
-    for sock in (r"\\.\pipe\docker_engine", "/var/run/docker.sock"):
-        if os.path.exists(sock):
-            LAST_ERROR[0] = ""
-            return "ready", d
+    if engine_socket_exists():
+        LAST_ERROR[0] = ""
+        return "ready", d
     # `docker info` can hang when Docker Desktop is half-started, so it is never allowed to block: no output pipes (a hung
     # child can keep them open and freeze the wait), a short deadline, and the process is killed if it overruns.
     try:

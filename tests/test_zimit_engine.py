@@ -39,6 +39,12 @@ if a[0] == "run":
     if mode == "reject" and ("--blockRules" in a or "--depth" in a):
         print("error: unknown argument --blockRules", flush=True)
         sys.exit(2)
+    if mode == "unknownflag" and "--pageLimit" in a:
+        print("usage: zimit [-h]\nzimit: error: unrecognized arguments: --pageLimit", flush=True)
+        sys.exit(2)
+    if mode == "oldimage" and ("--sizeSoftLimit" in a or "--timeSoftLimit" in a):
+        print("zimit: error: unrecognized arguments: --sizeSoftLimit", flush=True)
+        sys.exit(2)
     j("Crawl status", "crawlStatus", crawled=1, total=3, pending=2, failed=0)
     j("Page Finished", "pageStatus", page="https://example.com/")
     j("Page Load Failed", "pageStatus", page="https://example.com/bad")
@@ -62,10 +68,12 @@ def test_pure():
     cmd = build_command("docker", "c1", "/w", "https://a.org/x/", "n", o)
     s = " ".join(cmd)
     for frag in ("--seeds https://a.org/x/", "--name n", "--output /output", "--workers 3", "--pageLimit 50",
-                 f"--sizeLimit {10 * 1024 * 1024}", "--timeLimit 120", "--scopeType prefix", "-v /w:/output"):
+                 f"--sizeSoftLimit {10 * 1024 * 1024}", "--timeSoftLimit 120", "--scopeType prefix", "-v /w:/output"):
         assert frag in s, frag
+    old = " ".join(build_command("docker", "c1", "/w", "https://a.org/x/", "n", o, legacy=True))
+    assert f"--sizeLimit {10 * 1024 * 1024}" in old and "--timeLimit 120" in old and "SoftLimit" not in old
     s2 = " ".join(build_command("docker", "c", "/w", "https://a.org", "n", Options(max_pages=0, max_mb=0, subdomains=True)))
-    assert "--pageLimit" not in s2 and "--sizeLimit" not in s2 and "--timeLimit" not in s2
+    assert "--pageLimit" not in s2 and "--sizeSoftLimit" not in s2 and "--timeSoftLimit" not in s2
     assert "--scopeType domain" in s2
     ev = parse_line(json.dumps({"context": "crawlStatus", "message": "Crawl statistics",
                                 "details": {"crawled": 5, "total": 9, "pending": 2, "failed": 1}}))
@@ -133,6 +141,18 @@ def test_fake_docker():
     runs = [c for c in calls if c.startswith("run")]
     assert len(runs) == 2 and "--blockRules" in runs[0] and "--blockRules" not in runs[1], runs
     print("fake docker: rejected-options retry ok")
+
+    res, ev, out, out_dir, err = run_fake("oldimage", opts=Options(workers=2, max_mb=5, max_minutes=3))
+    assert err is None and res["size"] == 700, err
+    calls = open(os.path.join(os.environ["FAKE_DIR"], "calls.log")).read().splitlines()
+    runs = [c for c in calls if c.startswith("run")]
+    assert len(runs) == 2 and "--sizeSoftLimit" in runs[0] and "--sizeLimit" in runs[1] and "SoftLimit" not in runs[1], runs
+    print("fake docker: older crawler names fallback ok")
+
+    res, ev, out, out_dir, err = run_fake("unknownflag", opts=Options(workers=2, max_pages=9))
+    assert err is None and res["size"] == 700, err
+    assert any("--pageLimit" in e.get("text", "") for e in ev if e["type"] == "warn"), "no warning for dropped flag"
+    print("fake docker: unknown option dropped ok")
 
     res, ev, out, out_dir, err = run_fake("limit")
     assert res["limit_hit"] == "pages", res

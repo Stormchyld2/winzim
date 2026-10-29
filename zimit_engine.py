@@ -5,6 +5,7 @@ Docker Desktop is the only external requirement for this engine.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -112,7 +113,9 @@ def optional_flags(o):
     return out
 
 
-def build_command(docker, container, work_dir, url, name, o, extras=True):
+def build_command(docker, container, work_dir, url, name, o, extras=True, legacy=False):
+    """legacy=True uses the old --sizeLimit/--timeLimit names (older crawler images); the current ones are the Soft variants,
+    which stop the crawl and still save the ZIM."""
     cmd = [docker, "run", "--rm", "--name", container, "--shm-size=1g",
            "-v", f"{work_dir}:/output", IMAGE, "zimit",
            "--seeds", url, "--name", name, "--output", "/output",
@@ -120,14 +123,32 @@ def build_command(docker, container, work_dir, url, name, o, extras=True):
     if o.max_pages:
         cmd += ["--pageLimit", str(o.max_pages)]
     if o.max_mb:
-        cmd += ["--sizeLimit", str(o.max_mb * 1024 * 1024)]
+        cmd += ["--sizeLimit" if legacy else "--sizeSoftLimit", str(o.max_mb * 1024 * 1024)]
     if o.max_minutes:
-        cmd += ["--timeLimit", str(o.max_minutes * 60)]
+        cmd += ["--timeLimit" if legacy else "--timeSoftLimit", str(o.max_minutes * 60)]
     scope = "prefix" if o.path_scope else ("domain" if o.subdomains else "host")
     cmd += ["--scopeType", scope]
     if extras:
         cmd += optional_flags(o)
     return cmd
+
+
+def unrecognized_flags(text):
+    """Flags named in an argparse 'unrecognized arguments: --a --b' message."""
+    m = re.search(r"unrecognized arguments?:\s*(.+)", text)
+    return set(re.findall(r"--[A-Za-z][\w-]*", m.group(1))) if m else set()
+
+
+def drop_flags(cmd, flags):
+    """The command without the given flags (and the value after each)."""
+    out, i = [], 0
+    while i < len(cmd):
+        if cmd[i] in flags:
+            i += 2 if i + 1 < len(cmd) and not cmd[i + 1].startswith("--") else 1
+            continue
+        out.append(cmd[i])
+        i += 1
+    return out
 
 
 def detect_limit(line):
@@ -266,23 +287,37 @@ def run_zimit(url, out_path, o, on_event, cancel):
         def list_zims():
             return [os.path.join(work, f) for f in os.listdir(work) if f.lower().endswith(".zim")]
 
-        extras = bool(optional_flags(o))
-        cmd = build_command(docker, container, work, url, name, o, extras=True)
-        on_event({"type": "log", "text": "> " + " ".join(cmd)})
-        rc = run(cmd, "Crawling the site with Cindrix Recon...")
-        if cancel.is_set():
-            raise RuntimeError("Cancelled")
-        if extras and rc != 0 and not list_zims():
-            # Zimit may not accept the depth / block-rule flags; retry once without them.
-            on_event({"type": "log", "text": "The crawler didn't accept the detail/depth options - retrying without them. "
-                                             "Pictures and files will not be filtered this run."})
-            on_event({"type": "warn", "text": "The crawler ignored the detail level / depth options, so this run saved "
-                                              "everything it normally would."})
-            cmd = build_command(docker, container, work, url, name, o, extras=False)
+        extras, legacy, dropped = bool(optional_flags(o)), False, set()
+        for _attempt in range(4):
+            cmd = build_command(docker, container, work, url, name, o, extras=extras, legacy=legacy)
+            if dropped:
+                cmd = drop_flags(cmd, dropped)
             on_event({"type": "log", "text": "> " + " ".join(cmd)})
+            del tail[:]
             rc = run(cmd, "Crawling the site with Cindrix Recon...")
             if cancel.is_set():
                 raise RuntimeError("Cancelled")
+            if rc == 0 or list_zims():
+                break
+            text = " ".join(tail)
+            if "unrecognized arguments" in text and ("SoftLimit" in text) and not legacy and (o.max_mb or o.max_minutes):
+                legacy = True       # an older crawler image: it knows the old size/time option names
+                on_event({"type": "log", "text": "Older crawler version - retrying with its size/time option names."})
+                continue
+            bad = unrecognized_flags(text) - dropped - {"--seeds", "--name", "--output"}
+            if bad:     # this crawler version does not know some option: leave it out and carry on
+                dropped |= bad
+                on_event({"type": "warn", "text": "This crawler version does not know the option(s) " + ", ".join(sorted(bad))
+                                                  + ", so they were left out of this run."})
+                continue
+            if extras:
+                on_event({"type": "log", "text": "The crawler didn't accept the detail/depth options - retrying without them. "
+                                                 "Pictures and files will not be filtered this run."})
+                on_event({"type": "warn", "text": "The crawler ignored the detail level / depth options, so this run saved "
+                                                  "everything it normally would."})
+                extras = False
+                continue
+            break
 
         zims = list_zims()
         if not zims:

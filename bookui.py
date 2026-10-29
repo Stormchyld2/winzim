@@ -443,7 +443,9 @@ class BookTab(ttk.Frame):
             self.upsert(e["book"])
         elif t == "stats":
             self.counts.set(f"Pages looked at: {e['scanned']}    Books found: {e['books']}    "
-                            f"Downloadable: {e['ok']}    Blocked: {e['blocked']}")
+                            f"Downloadable: {e['ok']}    Blocked: {e['blocked']}"
+                            + (" (hidden: untick \"Only show books I can download\" to see them)"
+                               if e["blocked"] and self.only_ok.get() else ""))
         elif t == "done":
             self.busy_ui(False, "done")
             msg = f"Done: {e['books']} books, {e['ok']} you can download."

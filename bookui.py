@@ -189,6 +189,7 @@ class BookTab(ttk.Frame):
         ttk.Button(bar, text="Add to queue", command=self.queue_job).pack(side="left", padx=6)
         ttk.Button(bar, text="Drive report", command=self.make_report).pack(side="left")
         ttk.Button(bar, text="Starter library", command=self.app.open_starter).pack(side="left", padx=6)
+        ttk.Button(bar, text="Preview a ZIM", command=self.preview_zim).pack(side="left")
         self.status = tk.StringVar(value="Enter a library address and click Find books.")
         ttk.Label(bar, textvariable=self.status, style="Amber.TLabel").pack(side="right")
         self.progress = ttk.Progressbar(self, mode="indeterminate")
@@ -750,9 +751,28 @@ class BookTab(ttk.Frame):
             msg += "\n\nNo reader (download only):\n" + "\n".join(f"  {n[:45]}: {why}" for n, why in r["no_reader"][:6])
         if r["skipped"]:
             msg += "\n\nLeft out:\n" + "\n".join(f"  {n[:45]}: {why}" for n, why in r["skipped"][:6])
+        self.last_zim = e["path"]
         messagebox.showinfo("Books to ZIM", msg)
-        if prefs.get("open_when_done"):
+        if messagebox.askyesno("Books to ZIM", "Preview it in your web browser now?"):
+            self.preview_zim(e["path"])
+        elif prefs.get("open_when_done"):
             self.open_folder()
+
+    def preview_zim(self, path=None):
+        """Open a ZIM in the browser through the program's own small local server (no Kiwix needed)."""
+        path = path if isinstance(path, str) else None
+        if not path:
+            last = getattr(self, "last_zim", None)
+            path = filedialog.askopenfilename(
+                title="Choose a ZIM file to preview", filetypes=[("ZIM files", "*.zim"), ("All files", "*.*")],
+                initialdir=os.path.dirname(last) if last else (self.folder.get() or None))
+        if not path:
+            return
+        try:
+            from preview import preview_in_browser
+            preview_in_browser(path)
+        except Exception as ex:
+            messagebox.showerror("Books to ZIM", f"Couldn't preview this file here:\n{ex}\n\nTry opening it in Kiwix instead.")
 
     # ------------------------------------------------------------ downloading
     def start_download(self, items):

@@ -64,7 +64,7 @@ subprocess.run([FF, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=du
 subprocess.run([FF, "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=duration=2", "-c:a", "libopus", os.path.join(src, "ccc333.webm")], check=True)
 info("aaa111", "Clean water at home", "Prepper Pete", ["Water", "water filter", "DIY"], chapters=[{"title": "Intro", "start_time": 0}, {"title": "Boiling", "start_time": 2}])
 info("bbb222", "Fire <starting> & \"tinder\"", "Prepper Pete", ["fire", "diy", "water"])
-info("ccc333", "Radio talk (audio)", "Ham Hannah", ["radio"], vcodec="none")
+info("ccc333", "Radio talk (audio)", "Ham Hannah", ["radio"], vcodec="none", license="Creative Commons Attribution license (reuse allowed)")
 open(os.path.join(src, "aaa111.jpg"), "wb").write(b"\xff\xd8\xff\xe0fakejpeg")
 open(os.path.join(src, "aaa111.en.vtt"), "w").write("WEBVTT\n\n00:00.000 --> 00:01.000\nhello\n")
 
@@ -102,6 +102,7 @@ check("tags on the page link back filtered", 'href="../index.html#t=water%20filt
 check("description kept as text, not html", "About &lt;b&gt;" in d and "<b>Clean" not in d)
 check("related videos shown", "More like this" in d and "Fire" in d)
 adio = get(next(v["page"] for v in cat["videos"] if v["id"] == "ccc333")).decode()
+check("license shown on the page and in the catalog", "<b>License:</b> Creative Commons Attribution" in adio and any(v["license"].startswith("Creative") for v in cat["videos"]) and "<b>License:</b>" not in d)
 check("audio uses an audio player", "<audio" in adio and "<video" not in adio)
 _, ev = rd.resolve("C", next(v["url"] for v in cat["videos"] if v["id"] == "aaa111"))
 check("video is stored uncompressed (seekable)", rd.blob_location(ev) is not None and ev["mime"] == "video/webm")

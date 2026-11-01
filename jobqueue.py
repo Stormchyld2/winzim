@@ -135,7 +135,8 @@ def run_job(job, emit, cancel):
             done, failed = videos.download_many(
                 p["entries"], p["folder"], p.get("quality") or videos.DEFAULT_QUALITY, cancel, ytdlp, videos.find_tool("ffmpeg"),
                 videos.find_tool("deno"), p.get("subs", True),
-                lambda i, total, e, text: emit({"type": "phase", "text": f"Video {i} of {total}: {text}  {e['title'][:40]}"}))
+                lambda i, total, e, text: emit({"type": "phase", "text": f"Video {i} of {total}: {text}  {e['title'][:40]}"}),
+                cc=p.get("cc", False))
         except videos.VideoError as e:
             raise RuntimeError(str(e))
         if cancel.is_set():
@@ -184,7 +185,7 @@ class JobQueue:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             tmp = self.path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"jobs": self.jobs}, f, indent=1)
+                json.dump({"jobs": [j for j in self.jobs if not j.get("private")]}, f, indent=1)
             os.replace(tmp, self.path)
         except OSError:
             pass
@@ -197,6 +198,8 @@ class JobQueue:
     def add(self, kind, params, title=None):
         job = {"id": uuid.uuid4().hex[:10], "kind": kind, "params": params, "status": "queued", "message": "",
                "added": time.strftime("%Y-%m-%d %H:%M")}
+        if prefs.get("private_mode") and kind.startswith("videos"):
+            job["private"] = True            # kept for this run only, never saved to the queue file
         job["title"] = title or describe(job)
         with self.lock:
             self.jobs.append(job)

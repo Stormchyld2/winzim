@@ -37,6 +37,7 @@ DEFAULTS = {
     "tool_ffmpeg": "",
     "tool_deno": "",
     "video_search_count": 20,    # how many results a keyword search asks for
+    "private_mode": False,       # Videos tab: leave no history on disk (never remembered between runs)
     "video_signin": "",          # "" (none) | firefox | chrome | edge | brave | a cookies.txt file path
     "video_subs": True,          # also save English subtitles when there are some
     # zim library (taking books out of a ZIM)
@@ -75,12 +76,12 @@ def set(key, value):  # noqa: A001  (module-level setter, named like the getter)
 
 
 def dump():
-    return {"pref_" + k: v for k, v in _values.items()}
+    return {"pref_" + k: v for k, v in _values.items() if k != "private_mode"}
 
 
 def load(data):
     for k in DEFAULTS:
-        if "pref_" + k in data:
+        if k != "private_mode" and "pref_" + k in data:
             set(k, data["pref_" + k])
 
 

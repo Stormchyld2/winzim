@@ -48,7 +48,11 @@ def _norm_url(s):
     return ("https://" + s) if s.lower().startswith("www.") else s
 
 
-def classify(text, search_count=20):
+CC_SEARCH = "https://www.youtube.com/results?search_query={q}&sp=EgIwAQ%253D%253D"      # YouTube's own "Creative Commons" filter
+CC_FILTER = "license~='(?i)creative commons'"                                          # backstop while downloading
+
+
+def classify(text, search_count=20, cc=False):
     """Turn the input box into a plan: {"mode": "urls", "urls": [...]} or {"mode": "search", "query": ..., "target": "ytsearchN:..."}.
 
     Several lines that are all addresses are a list of addresses. Anything else is words to search for.
@@ -66,7 +70,9 @@ def classify(text, search_count=20):
     if not q:
         raise VideoError("Type a web address or some words to search for.")
     n = max(SEARCH_LIMITS[0], min(SEARCH_LIMITS[1], int(search_count)))
-    return {"mode": "search", "query": q, "count": n, "target": f"ytsearch{n}:{q}"}
+    from urllib.parse import quote_plus
+    target = CC_SEARCH.format(q=quote_plus(q)) if cc else f"ytsearch{n}:{q}"
+    return {"mode": "search", "query": q, "count": n, "target": target, "cc": bool(cc)}
 
 
 def plain_url_kind(url):
@@ -138,6 +144,8 @@ def base_args(ytdlp=None, ffmpeg=None, deno=None):
     if proxy:
         cmd += ["--proxy", proxy]
     cmd += signin_args()
+    if prefs.get("private_mode"):
+        cmd += ["--no-cache-dir", "--no-mark-watched"]
     return cmd
 
 
@@ -187,7 +195,8 @@ def parse_entry(d):
 
 def list_entries(plan, cancel=None, ytdlp=None, ffmpeg=None, deno=None, on_line=None, popen=None, limit=500):
     """Everything the plan points at, as a list of records (see parse_entry). Nothing is downloaded."""
-    cmd = base_args(ytdlp, ffmpeg, deno) + ["--flat-playlist", "--dump-json", "--playlist-end", str(limit)]
+    end = plan["count"] if plan["mode"] == "search" else limit
+    cmd = base_args(ytdlp, ffmpeg, deno) + ["--flat-playlist", "--dump-json", "--playlist-end", str(end)]
     targets = plan["urls"] if plan["mode"] == "urls" else [plan["target"]]
     out, errors, seen = [], [], set()
 
@@ -236,6 +245,8 @@ def friendly_error(lines):
         return "The site asked us to slow down. Wait a few minutes and try again."
     if "ffmpeg" in text and ("not found" in text or "not installed" in text):
         return "ffmpeg is needed to join the picture and sound. Use Settings > Video tools > Get ffmpeg."
+    if "does not pass filter" in text:
+        return "Not licensed Creative Commons, so it was skipped."
     if "urlopen error" in text or "unable to download" in text and "resolve" in text:
         return "Could not reach the site. Check the connection."
     last = next((l for l in reversed(lines) if l.strip()), "")
@@ -263,7 +274,7 @@ def estimate_bytes(entries, quality):
 _PCT = re.compile(r"\[download\]\s+([\d.]+)%")
 
 
-def download_args(quality, subs=True, archive=None, folder=None):
+def download_args(quality, subs=True, archive=None, folder=None, cc=False):
     fmt = QUALITIES.get(quality, QUALITIES[DEFAULT_QUALITY])[0]
     a = ["-f", fmt, "--merge-output-format", "webm/mp4/mkv", "--write-info-json", "--write-thumbnail", "--convert-thumbnails", "jpg",
          "-o", "%(id)s.%(ext)s", "--no-playlist", "--restrict-filenames", "--retries", "5", "--fragment-retries", "5"]
@@ -273,6 +284,8 @@ def download_args(quality, subs=True, archive=None, folder=None):
         a += ["--download-archive", archive]
     if folder:
         a += ["-P", folder]
+    if cc:
+        a += ["--match-filters", CC_FILTER]
     return a
 
 
@@ -285,11 +298,11 @@ def media_for(folder, vid):
     return None
 
 
-def download_many(entries, folder, quality, cancel, ytdlp=None, ffmpeg=None, deno=None, subs=True, on_state=None, popen=None):
+def download_many(entries, folder, quality, cancel, ytdlp=None, ffmpeg=None, deno=None, subs=True, on_state=None, popen=None, cc=False):
     """Download each entry into folder. Returns (done ids, [(id, reason)]). on_state(i, n, entry, text) reports progress."""
     os.makedirs(folder, exist_ok=True)
     done, failed = [], []
-    base = base_args(ytdlp, ffmpeg, deno) + download_args(quality, subs, folder=folder)
+    base = base_args(ytdlp, ffmpeg, deno) + download_args(quality, subs, folder=folder, cc=cc)
     for i, e in enumerate(entries, 1):
         if cancel is not None and cancel.is_set():
             break

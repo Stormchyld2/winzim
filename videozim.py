@@ -158,7 +158,7 @@ def prepare(folder, only_ids=None):
                      "views": info.get("view_count") if isinstance(info.get("view_count"), int) else 0,
                      "chapters": [c for c in (info.get("chapters") or []) if isinstance(c, dict) and c.get("title") is not None
                                   and isinstance(c.get("start_time"), (int, float))],
-                     "url": info.get("webpage_url") or ""})
+                     "url": info.get("webpage_url") or "", "license": str(info.get("license") or "")[:120]})
     recs.sort(key=lambda r: (r["channel"].lower(), r["title"].lower()))
     return recs
 
@@ -289,6 +289,7 @@ def render_detail(r, recs, library="Recon Videos"):
             f'<p class="by">{_e(sub)}</p>{chaps}<div class="tags">{tags}</div>'
             + (f'<p class="vdesc">{_e(r["description"])}</p>' if r["description"] else "")
             + f'<p><a class="btn" href="{_e(src)}" download>Save video ({human_size(r.get("size", 0))})</a></p>'
+            + (f'<p class="kv"><b>License:</b> {_e(r["license"])}</p>' if r["license"] else "")
             + (f'<p class="kv"><b>Original address:</b> {_e(r["url"])}</p>' if r["url"] else "") + f'{related}</main>')
     h = page(r["title"], body, "../")
     return h.replace("</body>", f"<script>{PJS}</script></body>", 1)
@@ -300,7 +301,7 @@ def catalog_dict(recs, title):
             "tags": [{"tag": t, "count": n} for t, n in tag_counts(recs)],
             "videos": [{"id": r["id"], "title": r["title"], "channel": r["channel"], "date": r["date"], "duration": r["duration"],
                         "tags": r["tags"], "url": r["url_path"], "size": r.get("size", 0), "page": f"videos/{r['slug']}.html",
-                        "source": r["url"]} for r in recs]}
+                        "source": r["url"], "license": r["license"]} for r in recs]}
 
 
 # ------------------------------------------------------------------ building the ZIM

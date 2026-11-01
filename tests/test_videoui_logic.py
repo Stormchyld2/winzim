@@ -60,6 +60,34 @@ check("picked records carry what a job needs", [p["id"] for p in v.picked()] == 
 v.target.set("https://www.youtube.com/watch?v=bad"); v.find()
 check("unavailable video shows a plain message", pump(until=lambda: not v.running) and "not available" in v.hint.get() and len(v.entries) == 0, v.hint.get())
 
+# --- Creative Commons box
+v.cc.set(True); v.target.set("water"); pl = v.plan()
+check("CC box changes the search", pl["cc"] and "Creative Commons only" in v.describe_plan(pl))
+v.entries = [{"id": "q1", "title": "T", "url": "https://x/watch?v=q1", "channel": "", "duration": 9, "pick": True, "status": ""}]
+v.queue_get(); jq = a.queue_tab.q.jobs[-1]
+check("CC passes to a queued download", jq["params"]["cc"] is True and v.get_settings()["video_cc"] is True)
+v.cc.set(False); v.entries = []
+
+# --- private mode
+import json
+qpath = a.queue_tab.q.path
+v.private.set(True); v.toggle_private()
+check("private mode switches on", prefs.get("private_mode") is True and "Private mode is on" in v.status.get())
+v.entries = [{"id": "pv1", "title": "Secret", "url": "https://x/watch?v=pv1", "channel": "", "duration": 9, "pick": True, "status": ""}]
+v.queue_get(); pj = a.queue_tab.q.jobs[-1]
+saved = json.load(open(qpath))["jobs"]
+check("private job is in the queue for this run but not on disk", pj.get("private") and pj["id"] not in [j["id"] for j in saved] and "pv1" not in open(qpath).read())
+v.set_settings({"video_get_folder": "C:/keep/me", "video_quality": "480p WebM"}); v.folder.set(os.path.join(tmp, "elsewhere"))
+check("saved settings written back unchanged while private", v.get_settings() == {"video_get_folder": "C:/keep/me", "video_quality": "480p WebM"}, v.get_settings())
+v.target.set("secret words"); v.private.set(False); v.toggle_private()
+check("turning it off clears the address and results", v.target.get() == "" and v.entries == [] and prefs.get("private_mode") is False)
+a.queue_tab.q.save(); check("later saves still leave private jobs out", "pv1" not in open(qpath).read())
+v.queue_get() if v.entries else None
+v.entries = [{"id": "np1", "title": "Open", "url": "https://x/watch?v=np1", "channel": "", "duration": 9, "pick": True, "status": ""}]
+v.queue_get(); check("normal jobs are saved as before", "np1" in open(qpath).read())
+v.entries = []
+v.quality.set("720p WebM"); v.folder.set(os.path.join(tmp, "got"))
+
 # --- downloading
 v.target.set("https://www.youtube.com/playlist?list=PLx"); v.find(); pump(until=lambda: not v.running)
 ids = [e["id"] for e in v.entries]; check("playlist found", ids == ["p0", "p1", "p2"], ids)

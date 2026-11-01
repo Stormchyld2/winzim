@@ -125,6 +125,18 @@ filters in *your* Kiwix before you spend hours on a big one.
 from the projects' own sites into this program's folder; nothing is bundled. YouTube changes often: if getting videos stops working,
 click **Update yt-dlp** first.
 
+**Only Creative Commons.** Tick this box on Get videos to search with YouTube's own Creative Commons filter, and to skip any
+video that is not licensed Creative Commons while downloading (this also works for playlists and channels). The license is saved
+and shown on each video's page in the ZIM and in `catalog.json`, so credit is easy to give. YouTube's filter covers only its own
+Creative Commons (reuse allowed) license: it does not find public-domain videos, and a video's license is the uploader's claim,
+so check it before you rely on it.
+
+**Private mode.** The *Private mode (leave no history)* box (top right of the Videos tab, off at every start) keeps this
+run's video jobs out of the queue file, writes back your remembered folders unchanged, and tells yt-dlp to keep no cache.
+The address you type, the results list and the queue entries for this run are cleared when you turn it off or close the program.
+It cannot hide the files you download, Windows' own recent-files lists, or what your network and the video site can see; signing
+in to YouTube ties downloads to that account.
+
 ### What Videos will not do
 - It never asks for your password. For age-restricted videos, or private ones that are yours, Settings > Videos can borrow the sign-in of a browser you are already signed in to (Firefox works best; Chrome and Edge often block it on Windows). Use a spare account: YouTube can limit accounts that download a lot. It does not get around paywalls or DRM.
 - Many sites, YouTube included, do not allow downloading in their terms. Only keep videos you have the right to keep. Public-domain

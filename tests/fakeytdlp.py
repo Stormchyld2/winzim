@@ -9,6 +9,12 @@ if "--update" in a:
 if "bad" in target:
     print("ERROR: [youtube] bad: Video unavailable"); sys.exit(1)
 if "--flat-playlist" in a:
+    cm = re.search(r"results\?search_query=([^&]*)&sp=EgIwAQ%253D%253D", target)
+    if cm:
+        n = int(a[a.index("--playlist-end") + 1])
+        for i in range(n):
+            print(json.dumps({"id": f"cc{i}", "title": f"CC {cm.group(1)} {i}", "url": f"https://www.youtube.com/watch?v=cc{i}", "duration": 30, "channel": "CC Chan"}))
+        sys.exit(0)
     m = re.match(r"ytsearch(\d+):(.*)", target)
     if m:
         n = int(m.group(1))
@@ -26,6 +32,8 @@ out = a[a.index("-P") + 1] if "-P" in a else "."
 os.chdir(out)
 if "fail" in vid:
     print("[youtube] extracting"); print("ERROR: [youtube] Private video. Sign in"); sys.exit(1)
+if "--match-filters" in a and not vid.startswith("cc"):
+    print(f"[download] {vid}: does not pass filter (license~='(?i)creative commons'), skipping .."); sys.exit(0)
 for pct in ("10.0", "55.5", "100"):
     print(f"[download]  {pct}% of 1.00MiB at 1.00MiB/s ETA 00:01")
 open(vid + ".webm", "wb").write(b"\x1aE\xdf\xa3fake" * 50)
@@ -34,4 +42,4 @@ open(vid + ".en.vtt", "w").write("WEBVTT\n\n00:00.000 --> 00:01.000\nhello\n")
 json.dump({"id": vid, "title": "Title of " + vid, "channel": "Chan " + vid[0], "duration": 90, "tags": ["Water", "water filter", "diy"],
            "categories": ["Howto & Style"], "description": "About " + vid, "upload_date": "20240131",
            "chapters": [{"title": "Start", "start_time": 0}, {"title": "Middle", "start_time": 30}], "webpage_url": target,
-           "view_count": 1234}, open(vid + ".info.json", "w"))
+           "view_count": 1234, "license": "Creative Commons Attribution license (reuse allowed)" if vid.startswith("cc") else None}, open(vid + ".info.json", "w"))

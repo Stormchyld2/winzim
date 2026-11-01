@@ -57,6 +57,26 @@ prefs.set("video_signin", "/nope/cookies.txt"); check("missing cookies file igno
 prefs.set("video_signin", ""); check("no sign-in by default", videos.signin_args() == [])
 check("sign-in error points at the setting", "Settings > Videos" in videos.friendly_error(["Sign in to confirm your age"]) and "Firefox" in videos.friendly_error(["Could not copy Chrome cookie database"]))
 
+# --- Creative Commons
+c = videos.classify("how to purify water", 12, cc=True)
+check("CC search uses YouTube's own filter", c["cc"] and "sp=EgIwAQ%253D%253D" in c["target"] and "search_query=how+to+purify+water" in c["target"] and "ytsearch" not in c["target"], c)
+check("normal search unchanged", "cc" in videos.classify("x") and videos.classify("x")["cc"] is False and videos.classify("x")["target"].startswith("ytsearch20:"))
+es = videos.list_entries(videos.classify("water", 7, cc=True))
+check("CC search lists the asked-for number", len(es) == 7 and es[0]["id"] == "cc0", len(es))
+check("download args carry the license filter only when asked", "--match-filters" in videos.download_args("480p WebM", cc=True) and "--match-filters" not in videos.download_args("480p WebM"))
+ccf = os.path.join(tmp, "ccdl")
+done, failed = videos.download_many([{"id": "cc0", "title": "A", "url": "https://x/watch?v=cc0", "channel": "", "duration": 9}, {"id": "plain1", "title": "B", "url": "https://x/watch?v=plain1", "channel": "", "duration": 9}], ccf, "480p WebM", None, cc=True)
+check("only Creative Commons videos kept", done == ["cc0"] and len(failed) == 1 and failed[0][1] == "Not licensed Creative Commons, so it was skipped.", (done, failed))
+check("license kept in the info file", "Creative Commons" in videos.read_info(ccf, "cc0")["license"])
+
+# --- private mode
+prefs.set("private_mode", True)
+check("private mode: yt-dlp keeps no cache", "--no-cache-dir" in videos.base_args())
+prefs.set("private_mode", False)
+check("normal mode: cache allowed", "--no-cache-dir" not in videos.base_args())
+check("private mode is never saved", "pref_private_mode" not in prefs.dump())
+prefs.set("private_mode", True); prefs.load({"pref_private_mode": False}); check("and never loaded back", prefs.get("private_mode") is True); prefs.set("private_mode", False)
+
 # --- listing
 got = []
 es = videos.list_entries(videos.classify("water", 7), on_line=got.append, popen=None)

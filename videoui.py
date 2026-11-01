@@ -31,6 +31,9 @@ class VideoTab(ttk.Frame):
         self.folder = tk.StringVar(value=os.path.join(os.path.expanduser("~"), "Documents", "Videos"))
         self.subs = tk.BooleanVar(value=prefs.get("video_subs"))
         self.search_n = tk.StringVar(value=str(prefs.get("video_search_count")))
+        self.cc = tk.BooleanVar(value=False)
+        self.private = tk.BooleanVar(value=False)
+        self._loaded = {}              # the saved settings as loaded, written back unchanged while private mode is on
         self.filter_text = tk.StringVar()
         self.total_note = tk.StringVar()
         self.entries = []              # [{id,title,url,channel,duration,pick,status}]
@@ -63,6 +66,7 @@ class VideoTab(ttk.Frame):
         self.btn_get.pack(side="left")
         self.btn_zim = ttk.Button(mb, text="Videos to ZIM", command=lambda: self.set_mode("zim"))
         self.btn_zim.pack(side="left", padx=4)
+        ttk.Checkbutton(mb, text="Private mode (leave no history)", variable=self.private, command=self.toggle_private).pack(side="right")
         self.slot = ttk.Frame(self)
         self.slot.pack(fill="both", expand=True)
 
@@ -87,6 +91,7 @@ class VideoTab(ttk.Frame):
         ttk.Checkbutton(opt, text="Subtitles", variable=self.subs).pack(side="left", padx=(16, 0))
         ttk.Label(opt, text="Search results:").pack(side="left", padx=(24, 4))
         ttk.Combobox(opt, textvariable=self.search_n, values=SEARCH_CHOICES, state="readonly", width=4).pack(side="left")
+        ttk.Checkbutton(opt, text="Only Creative Commons", variable=self.cc).pack(side="left", padx=(24, 0))
         fo = ttk.Frame(g)
         fo.pack(fill="x", padx=10, pady=4)
         fo.columnconfigure(1, weight=1)
@@ -202,11 +207,16 @@ class VideoTab(ttk.Frame):
             self.load_zim_folder()
 
     def get_settings(self):
+        if self.private.get():
+            return dict(self._loaded)
         return {"video_mode": self.mode.get(), "video_get_folder": self.folder.get().strip(), "video_quality": self.quality.get(),
                 "video_zim_folder": self.zim_folder.get().strip(), "video_zim_out": self.zim_out.get().strip(),
-                "video_zim_name": self.zim_name.get().strip(), "video_shrink": self.shrink.get()}
+                "video_zim_name": self.zim_name.get().strip(), "video_shrink": self.shrink.get(), "video_cc": self.cc.get()}
 
     def set_settings(self, s):
+        self._loaded = {k: v for k, v in s.items() if k.startswith("video_")}
+        if "video_cc" in s:
+            self.cc.set(bool(s["video_cc"]))
         if s.get("video_get_folder"):
             self.folder.set(s["video_get_folder"])
         if s.get("video_quality") in videos.QUALITIES:
@@ -221,6 +231,21 @@ class VideoTab(ttk.Frame):
             self.shrink.set(s["video_shrink"])
         if s.get("video_mode") in ("get", "zim"):
             self.set_mode(s["video_mode"])
+
+    def toggle_private(self):
+        """Private mode: this run's videos jobs, folders and results are not written anywhere, and yt-dlp keeps no cache."""
+        on = self.private.get()
+        prefs.set("private_mode", on)
+        if on:
+            self.status.set("Private mode is on: nothing from this tab is saved for next time. Downloaded files still stay in your folder.")
+        else:
+            self.target.set("")
+            self.entries = []
+            self.zim_items = []
+            self.render_get()
+            self.ztree.delete(*self.ztree.get_children())
+            self.hint.set("Private mode is off. The list and address were cleared.")
+            self.status.set("Ready.")
 
     def refresh_helpers(self):
         bits = [f"{n} {'found' if videos.find_tool(k) else 'not found'}" for k, n in (("yt-dlp", "yt-dlp"), ("deno", "Deno"), ("ffmpeg", "ffmpeg"))]
@@ -295,14 +320,14 @@ class VideoTab(ttk.Frame):
         except ValueError:
             n = prefs.get("video_search_count")
         try:
-            return videos.classify(self.target.get(), n)
+            return videos.classify(self.target.get(), n, self.cc.get())
         except videos.VideoError as e:
             self.hint.set(str(e))
             return None
 
     def describe_plan(self, plan):
         if plan["mode"] == "search":
-            return f"Searching for \"{plan['query']}\" ({plan['count']} results)..."
+            return f"Searching for \"{plan['query']}\" ({plan['count']} results" + (", Creative Commons only" if plan.get("cc") else "") + ")..."
         kinds = [videos.plain_url_kind(u) for u in plan["urls"]]
         if len(kinds) == 1:
             return {"video": "Looking at one video...", "playlist": "Looking at a playlist...", "channel": "Looking at a channel..."}[kinds[0]]
@@ -394,7 +419,7 @@ class VideoTab(ttk.Frame):
         if not ytdlp:
             messagebox.showinfo("Videos", "yt-dlp is needed to get videos. Open Settings > Videos and use Install it for me, then try again.")
             return
-        quality, subs = self.quality.get(), self.subs.get()
+        quality, subs, cc = self.quality.get(), self.subs.get(), self.cc.get()
         ffmpeg, deno = videos.find_tool("ffmpeg"), videos.find_tool("deno")
         self.cancel = threading.Event()
         self.busy(True, "Downloading...")
@@ -405,7 +430,7 @@ class VideoTab(ttk.Frame):
 
         def work():
             try:
-                done, failed = videos.download_many(picks, folder, quality, self.cancel, ytdlp, ffmpeg, deno, subs, on_state)
+                done, failed = videos.download_many(picks, folder, quality, self.cancel, ytdlp, ffmpeg, deno, subs, on_state, cc=cc)
                 self.emit({"type": "vdl_done", "done": done, "failed": failed, "folder": folder, "cancelled": self.cancel.is_set()})
             except videos.VideoError as e:
                 self.emit({"type": "vlist_error", "text": str(e)})
@@ -418,7 +443,7 @@ class VideoTab(ttk.Frame):
         if not folder:
             return
         job, waiting = self.app.queue_tab.add("videos_get", {"entries": self.picked(), "folder": folder, "quality": self.quality.get(),
-                                                              "subs": self.subs.get()})
+                                                              "subs": self.subs.get(), "cc": self.cc.get()})
         self.status.set(f"Added to the queue ({waiting} waiting). Open the Queue tab to start it.")
 
     def update_ytdlp(self):

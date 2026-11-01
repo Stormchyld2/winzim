@@ -18,7 +18,7 @@ class QueueTab(ttk.Frame):
         self.info = tk.StringVar()
         top = ttk.Frame(self)
         top.pack(fill="x", padx=10, pady=(10, 4))
-        ttk.Label(top, text="Jobs wait here and run one after another. Add them from the Sites and Books tabs with Add to queue.").pack(side="left")
+        ttk.Label(top, text="Jobs wait here and run one after another. Add them from the Sites, Books and Videos tabs with Add to queue.").pack(side="left")
         box = ttk.Frame(self)
         box.pack(fill="both", expand=True, padx=10, pady=4)
         self.tree = ttk.Treeview(box, columns=("n", "status", "job", "details"), show="headings", selectmode="browse", height=12)
@@ -70,7 +70,7 @@ class QueueTab(ttk.Frame):
             self.info.set("Will stop after the current job.")
         else:
             if not any(j["status"] == "queued" for j in self.q.jobs):
-                messagebox.showinfo(NAME, "There is nothing waiting. Add jobs with Add to queue on the Sites and Books tabs.")
+                messagebox.showinfo(NAME, "There is nothing waiting. Add jobs with Add to queue on the Sites, Books and Videos tabs.")
                 return
             self.q.start()
         self.refresh()

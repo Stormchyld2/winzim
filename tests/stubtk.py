@@ -50,7 +50,7 @@ class Style(W):
     def theme_use(self, *a, **k): pass
 ttk.Style = Style
 mb = types.ModuleType("tkinter.messagebox")
-mb.showerror = mb.showinfo = lambda *a, **k: None
+mb.showerror = mb.showinfo = mb.showwarning = lambda *a, **k: None
 def askyesno(*a, **k): asked.append(a); return False
 mb.askyesno = askyesno
 answers = {"yncancel": None}

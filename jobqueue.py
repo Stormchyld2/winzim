@@ -6,6 +6,8 @@ Job kinds
   books_find   look up one book          params: query, folder, pref
   books_zim    folder of books -> ZIM    params: folder, out, name, max_file_mb
   extract      books out of a ZIM        params: zim, folder
+  videos_get   download videos           params: entries[{id,title,url,channel,duration}], folder, quality, subs
+  videos_zim   folder of videos -> ZIM   params: folder, out, name, max_file_mb, convert, only_ids (optional)
 """
 import json
 import os
@@ -37,6 +39,11 @@ def describe(job):
         return "Books to ZIM: " + p["folder"]
     if k == "extract":
         return "Books out of: " + os.path.basename(p["zim"])
+    if k == "videos_get":
+        n = len(p["entries"])
+        return f"Get {n} video{'s' if n != 1 else ''}: " + (p["entries"][0]["title"][:50] if n == 1 else p["folder"])
+    if k == "videos_zim":
+        return "Videos to ZIM: " + p["folder"]
     return k
 
 
@@ -118,6 +125,31 @@ def run_job(job, emit, cancel):
         if not ok:
             raise RuntimeError(next((i for s, i in res if s == "failed"), "Nothing was taken out."))
         return f"{ok} files taken out"
+    if k == "videos_get":
+        import videos
+        try:
+            ytdlp = videos.find_tool("yt-dlp")
+            if not ytdlp:
+                raise videos.VideoError("yt-dlp is not installed yet. Use Settings > Videos > Install it for me.")
+            n = len(p["entries"])
+            done, failed = videos.download_many(
+                p["entries"], p["folder"], p.get("quality") or videos.DEFAULT_QUALITY, cancel, ytdlp, videos.find_tool("ffmpeg"),
+                videos.find_tool("deno"), p.get("subs", True),
+                lambda i, total, e, text: emit({"type": "phase", "text": f"Video {i} of {total}: {text}  {e['title'][:40]}"}))
+        except videos.VideoError as e:
+            raise RuntimeError(str(e))
+        if cancel.is_set():
+            raise RuntimeError("Cancelled")
+        if not done:
+            raise RuntimeError(failed[0][1] if failed else "Nothing was downloaded.")
+        return f"{len(done)} of {n} videos saved" + (f", {len(failed)} failed: {failed[0][1]}" if failed else "")
+    if k == "videos_zim":
+        import videos
+        import videozim
+        r = videozim.build_videos_zim(p["folder"], p["out"], p.get("name") or "Recon Videos", emit, cancel,
+                                      max_file_mb=p.get("max_file_mb", 2000), ffmpeg=videos.find_tool("ffmpeg"),
+                                      convert=p.get("convert", True), only_ids=set(p["only_ids"]) if p.get("only_ids") else None)
+        return f"{r['videos']} videos, {books.human_size(r['size'])}" + (f", {len(r['skipped'])} left out" if r["skipped"] else "")
     raise RuntimeError(f"Unknown job type {k}")
 
 

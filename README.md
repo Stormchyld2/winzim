@@ -4,9 +4,10 @@ Collect what you'll need **before** you need it: copy whole websites into offlin
 [Kiwix](https://kiwix.org)) and find and download books. It is a collection tool for while the internet is up;
 what you carry on the drive is the output (ZIM files, books, a reader), not Recon itself.
 
-Two tabs:
+Three working tabs:
 - **Sites**: paste a URL, check the green light, click **Convert** to get a ZIM file.
 - **Books**: find books on a library site, or look a book up by title/author and get the best place to download it.
+- **Videos**: get videos (one address, a playlist, a channel, or a keyword search) and pack them into a ZIM with a searchable, tagged catalog.
 
 `CindrixRecon.exe` has Python bundled inside, so the **only** thing you may need to install is Docker Desktop
 (and only for the Cindrix Recon engine on the Sites tab).
@@ -94,6 +95,43 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
 - Catalog connectors were written from the services' published documentation and tested against stand-ins, not against
   the live services. If one stops answering, the others still work and the message says how many answered.
 
+## Videos tab
+
+Two parts, chosen with the buttons at the top.
+
+**Get videos.** Type a web address in the box (one video, a playlist or a whole channel; several addresses separated by
+commas or one per line also work) **or** plain words, which become a keyword search (5 to 50 results; set in the box or in
+Settings > Videos). Click **Find videos**: every video found is listed with its channel, length and a rough size, all ticked.
+Untick what you do not want (the box at the start of the row), filter the list by words, pick a quality
+(360p, 480p, 720p, 1080p, or sound only; the default is 480p) and **Download ticked**, or **Add to queue**. Subtitles
+(English, when a video has them) are saved too. Each video becomes plain files in the folder you chose: the video, its
+`.info.json` (title, channel, tags, chapters, description), a picture and the subtitles. Videos already in the folder are skipped, so
+you can run the same playlist again to pick up new ones. Videos are fetched one at a time, politely.
+
+**Videos to ZIM.** Pick the folder of downloaded videos, a name and where to save the ZIM, tick the videos, and **Build ZIM**
+(now, or through the queue). The ZIM has a small offline website, like the Books one, but with tags:
+- a home page with a card for every video (picture, length, channel, tags);
+- **tag buttons** with counts: pick one or several (a video must have all of them), plus a search box that looks in title,
+  channel, tags and description, a channel menu, a length menu, sorting, and *Group by channel*;
+- a page for each video with the player, subtitles, clickable chapters, the description, its tags (each leads back to the home page filtered by that tag), a *Save video* button and *More like this*;
+- `catalog.json` listing every video and tag.
+Videos go in as **WebM** (VP9 video, Opus sound), which Kiwix and browsers play without extra codecs. MP4, MKV and the like
+are converted with ffmpeg first (this is slow: expect a few minutes per hour of video); without ffmpeg they go in as they are and
+may not play everywhere. **Test ZIM (3 sample videos)** builds a tiny ZIM of made-up videos so you can check that video plays, seeks and
+filters in *your* Kiwix before you spend hours on a big one.
+
+**Helper programs** (Settings > Videos, *Install it for me* for each, no administrator rights): **yt-dlp** gets the videos,
+**Deno** is what YouTube needs so yt-dlp can work out the video address, **ffmpeg** joins picture and sound and makes WebM. They are downloaded
+from the projects' own sites into this program's folder; nothing is bundled. YouTube changes often: if getting videos stops working,
+click **Update yt-dlp** first.
+
+### What Videos will not do
+- It does not log in or get around paywalls, members-only videos or DRM. If a site asks for a sign-in, the message says so.
+- Many sites, YouTube included, do not allow downloading in their terms. Only keep videos you have the right to keep. Public-domain
+  and Creative Commons videos, and your own, are the safe choice.
+- It was tested against a stand-in for yt-dlp and with made-up videos, not against live YouTube: what yt-dlp prints can change.
+- Live streams and very long videos are big. Videos over the *Leave out single files bigger than* limit (Settings > Books to ZIM) are left out of the ZIM and listed.
+
 ## Settings tab
 
 - **General:** dark/light, remember choices, ask before bulk downloads, open the folder when done, Docker check, export/import/reset.
@@ -101,11 +139,12 @@ The **Books -> ZIM** button packs the books in your save folder into one ZIM fil
 - **Network:** timeout, pause between requests, proxy, whether the big book catalogs get the contact address, a connection test.
 - **Sites:** pages at once, pause between pages, Docker status.
 - **Books to ZIM:** default library name, biggest single file, readers on/off, and the optional helper programs (DjVuLibre for DJVU, 7-Zip for RAR comics, Calibre for LIT). They are found automatically if installed.
+- **Videos:** how many results a keyword search asks for, subtitles on/off, and the helper programs (yt-dlp, Deno, ffmpeg) with *Install it for me* and *Update yt-dlp*.
 - **ZIM library:** take the books back **out** of a ZIM made by Books to ZIM, for rebuilding it with more books. Pick the ZIM, and every row has a Download button. Turn on *Select several books at once* to get checkboxes plus Select all, Download selected and Download all. Files land in category subfolders with a restored `library_manifest.csv`, so the folder can go straight back into Books to ZIM.
 
 ## Queue, drive report, starter library, resume
 
-- **Queue tab:** *Add to queue* (Sites tab, Books tab, Books to ZIM, ZIM library) puts a job in a list that runs one after another once you click *Start queue*. Jobs are saved, so closing the program does not lose them; one that was running when the program closed shows as *Interrupted* and can be retried. You can move jobs up or down, remove, retry, cancel the current one, or pause after it. Job types: site to ZIM, books from a library site, find one book, books to ZIM, and books out of a ZIM.
+- **Queue tab:** *Add to queue* (Sites tab, Books tab, Books to ZIM, ZIM library) puts a job in a list that runs one after another once you click *Start queue*. Jobs are saved, so closing the program does not lose them; one that was running when the program closed shows as *Interrupted* and can be retried. You can move jobs up or down, remove, retry, cancel the current one, or pause after it. Job types: site to ZIM, books from a library site, find one book, books to ZIM, books out of a ZIM, get videos, and videos to ZIM.
 - **Drive report** (Books tab): pick a folder or drive and get `drive_report.html` and `drive_report.csv` in it. It lists your ZIMs and books, checks every ZIM's checksum, flags book files that are really web pages or cut short, books listed in `library_manifest.csv` that are gone, duplicates, free space, and recent failed queue jobs.
 - **Starter library** (Sites and Books tabs): a reviewed list of preparedness sites and books to look up. It comes pre-approved, but **the web addresses were not opened live**, so look at a site before you collect it; untick the box in the first column to switch an entry off. Entries you add or edit start unapproved. It is a plain file, `starter_library.json`, beside your settings; edit it freely. *Use* only fills in the Sites or Books tab; it never starts anything.
 - **Helper programs, one button each:** Settings > Books to ZIM has an *Install it for me* button for DjVuLibre, 7-Zip and Calibre. It downloads the official installer from the project's own site (needs internet, once) and runs it. DjVuLibre and 7-Zip go into the program's own folder with no administrator rights; Calibre is large (about 200 MB) and Windows asks permission. Nothing is bundled or signed. *Get it* opens the project's page instead.
@@ -144,7 +183,9 @@ Dark / Light switch (top right, remembered).
 |---|---|
 | `app.py` | The window and the Sites tab |
 | `bookui.py`, `books.py` | Books tab window; book finding, link testing, catalog lookup, downloading |
-| `toolinstall.py` | Install DjVuLibre / 7-Zip / Calibre from Settings |
+| `toolinstall.py` | Install DjVuLibre / 7-Zip / Calibre, and yt-dlp / Deno / ffmpeg, from Settings |
+| `videoui.py`, `videos.py` | Videos tab window; what was typed, yt-dlp listing and downloading, reading downloaded videos |
+| `videozim.py` | Videos -> ZIM: tagged catalog website, WebM conversion, the test ZIM |
 | `jobqueue.py`, `queueui.py`, `drivereport.py`, `starterlib.py`, `starterui.py`, `crawlcache.py` | Queue, drive report, starter library, saved pages |
 | `settingsui.py`, `prefs.py`, `jobs.py`, `zimlibrary.py` | Settings tab, program settings, the download queue, taking books out of a ZIM |
 | `bookzim.py`, `bookread.py`, `flame.py` | Books -> ZIM: catalog website builder, e-book converters for the in-ZIM reader, the flame logo shape |
@@ -174,3 +215,4 @@ Run from the repo root (they also run in the GitHub build):
 - `python tests/test_zimlibrary.py`, `python tests/test_settings_logic.py`: taking books out of a ZIM (parallel, queued), the Settings tab.
 - `python tests/test_cache.py`, `python tests/test_drivereport.py`, `python tests/test_jobqueue.py`, `python tests/test_starterlib.py`, `python tests/test_toolinstall.py`: resume/update, the drive report, the queue, the starter list, the helper installer.
 - `python tests/test_app_logic.py`, `python tests/test_bookui_logic.py`: window logic using a stub tkinter (draws no real window).
+- `python tests/test_videos.py`, `python tests/test_videozim.py`, `python tests/test_videoui_logic.py`: the Videos tab (against a *fake* `yt-dlp`, `tests/fakeytdlp.py`): input reading, listing, downloading, helper installs, the tagged ZIM, video seeking (Range requests) and the window logic. The parts that need ffmpeg are skipped when it is not installed.

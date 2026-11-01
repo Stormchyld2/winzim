@@ -9,6 +9,7 @@ import hashlib
 import http.server
 import lzma
 import mimetypes
+import re
 import struct
 import threading
 from urllib.parse import quote, unquote
@@ -206,14 +207,57 @@ def make_handler(zim):
                         return self._redirect("/" + quote(final["url"]))
             if e is None:
                 return self._send(404, b"Not in this ZIM file.", "text/plain")
+            mime = e["mime"] or mimetypes.guess_type(path)[0] or "application/octet-stream"
+            loc = zim.blob_location(e) if mime.split("/")[0] in ("video", "audio") else None
+            if loc:           # videos and sound: send in pieces and honour Range, so seeking works
+                return self._send_range(loc, mime)
             try:
                 data = zim.blob(e)
             except ZimError as err:
                 return self._send(500, str(err).encode(), "text/plain")
-            mime = e["mime"] or mimetypes.guess_type(path)[0] or "application/octet-stream"
             if mime.startswith("text/") and "charset" not in mime:
                 mime += "; charset=utf-8"
             self._send(200, data, mime)
+
+        def _send_range(self, loc, mime):
+            off, total = loc
+            start, end = 0, total - 1
+            code = 200
+            rng = self.headers.get("Range")
+            if rng:
+                m = re.match(r"bytes=(\d*)-(\d*)$", rng.strip())
+                if m and (m.group(1) or m.group(2)):
+                    if m.group(1):
+                        start = int(m.group(1))
+                        end = int(m.group(2)) if m.group(2) else total - 1
+                    else:                                   # "last N bytes"
+                        start = max(0, total - int(m.group(2)))
+                    end = min(end, total - 1)
+                    if start > end or start >= total:
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{total}")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return
+                    code = 206
+            self.send_response(code)
+            self.send_header("Content-Type", mime)
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(end - start + 1))
+            if code == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
+            self.end_headers()
+            pos, left = off + start, end - start + 1
+            try:
+                while left > 0:
+                    chunk = zim._read(pos, min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    pos += len(chunk)
+                    left -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass             # the player closed the connection (it does that when you seek)
 
         def _redirect(self, where):
             self.send_response(302)

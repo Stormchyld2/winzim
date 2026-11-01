@@ -23,6 +23,7 @@ import settings as appsettings
 from appinfo import CONTACT, VERSION
 from bookui import BookTab
 from queueui import QueueTab
+from videoui import VideoTab
 from starterui import StarterDialog
 from settingsui import SettingsTab
 from crawler import Options, convert
@@ -329,6 +330,8 @@ class App(tk.Tk):
 
         self.books = BookTab(self.main_nb, self, ICONS)
         self.main_nb.add(self.books, text="Books")
+        self.videos = VideoTab(self.main_nb, self)
+        self.main_nb.add(self.videos, text="Videos")
         self.queue_tab = QueueTab(self.main_nb, self)
         self.main_nb.add(self.queue_tab, text="Queue")
         self.settings = SettingsTab(self.main_nb, self)
@@ -440,6 +443,8 @@ class App(tk.Tk):
         self.footer_label.configure(bg=p["banner"], fg=p["muted"])
         self.set_icon(self.icon_level, self.icon_msg)
         self.books.apply_theme(p)
+        if hasattr(self, "videos"):
+            self.videos.apply_theme(p)
         if hasattr(self, "queue_tab"):
             self.queue_tab.apply_theme(p)
         self.draw_banner()
@@ -714,6 +719,7 @@ class App(tk.Tk):
             self.detail.set(s["detail"])
         self.dark = s.get("theme", "dark") != "light"
         self.books.set_settings(s)
+        self.videos.set_settings(s)
         prefs.load(s)
         prefs.apply_network()
         if hasattr(self, "settings"):
@@ -733,6 +739,7 @@ class App(tk.Tk):
         for n in FLAG_NAMES:
             data[n] = self.dv[n].get()
         data.update(self.books.get_settings())
+        data.update(self.videos.get_settings())
         if not prefs.get("remember"):   # keep only the program settings and the theme
             data = {"theme": data["theme"]}
         data.update(prefs.dump())
@@ -1003,6 +1010,8 @@ class App(tk.Tk):
                     self.on_check_result(*val)
                 elif kind == "book":
                     self.books.on_event(val)
+                elif kind == "video":
+                    self.videos.on_event(val)
                 elif kind == "queue":
                     self.queue_tab.refresh()
                 elif kind == "settings":
@@ -1117,11 +1126,12 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, text)
 
     def on_close(self):
-        if self.running or self.books.running or self.settings.library.running or self.queue_tab.q.running:
+        if self.running or self.books.running or self.videos.running or self.settings.library.running or self.queue_tab.q.running:
             if not messagebox.askyesno(APP_NAME, "Something is still running. Cancel it and quit?"):
                 return
             self.cancel.set()
             self.books.cancel.set()
+            self.videos.cancel.set()
             self.settings.library.cancel.set()
             self.queue_tab.stop_all()
         self.save_settings()

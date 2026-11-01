@@ -25,7 +25,17 @@ SPECS = {
            "pattern": r'href="(a/7z\d+-x64\.exe)"', "base": "https://www.7-zip.org/", "size": "about 2 MB"},
     "calibre": {"name": "Calibre", "kind": "msi", "url": "https://calibre-ebook.com/dist/win64", "size": "about 200 MB",
                 "note": "Windows will ask for permission, because Calibre installs for the whole computer."},
+    # the video helpers: plain downloads into our own folder, no installer and no administrator rights
+    "yt-dlp": {"name": "yt-dlp", "kind": "file", "exe": "yt-dlp",
+               "url": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe", "size": "about 18 MB"},
+    "deno": {"name": "Deno", "kind": "zip", "exe": "deno",
+             "url": "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip",
+             "size": "about 40 MB", "note": "YouTube needs it so yt-dlp can work out the video address."},
+    "ffmpeg": {"name": "ffmpeg", "kind": "zip", "exe": "ffmpeg",
+               "url": "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+               "size": "about 150 MB", "note": "Joins picture and sound, and turns videos into WebM."},
 }
+VIDEO_TOOLS = ("yt-dlp", "deno", "ffmpeg")
 
 
 class InstallError(Exception):
@@ -41,8 +51,14 @@ def tool_dir(key):
 
 
 def installed_path(key):
-    exe = {"ddjvu": "ddjvu", "7z": "7z"}.get(key)
+    exe = {"ddjvu": "ddjvu", "7z": "7z"}.get(key) or SPECS.get(key, {}).get("exe")
     if not exe:
+        return None
+    if SPECS[key]["kind"] in ("file", "zip"):         # zips unpack into folders of their own (ffmpeg keeps its program in bin/)
+        want = exe + (".exe" if sys.platform == "win32" else "")
+        for root, _dirs, files in os.walk(tool_dir(key)):
+            if want in files:
+                return os.path.join(root, want)
         return None
     p = os.path.join(tool_dir(key), exe + (".exe" if sys.platform == "win32" else ""))
     return p if os.path.isfile(p) else None
@@ -68,7 +84,7 @@ def resolve_url(key, opener=None):
     return spec["base"] + m.group(1)
 
 
-def download(url, dest, on_progress=None, cancel=None, opener=None):
+def download(url, dest, on_progress=None, cancel=None, opener=None, min_bytes=MIN_BYTES):
     try:
         with _get(url, opener) as r, open(dest, "wb") as f:
             total = int(r.headers.get("Content-Length") or 0)
@@ -87,7 +103,7 @@ def download(url, dest, on_progress=None, cancel=None, opener=None):
         raise
     except Exception as e:
         raise InstallError(f"Could not download it ({e.__class__.__name__}: {e}). Check your connection or use the Get it button.")
-    if os.path.getsize(dest) < MIN_BYTES:
+    if os.path.getsize(dest) < min_bytes:
         raise InstallError("The download was too small to be the installer. Use the Get it button instead.")
 
 
@@ -146,3 +162,39 @@ def install(key, on_progress=None, cancel=None, run=None, opener=None, url=None,
             raise InstallError(f"The {spec['name']} installer finished but the program was not found. Install it with the Get it "
                                "button, then use Browse to point at it.")
         return p
+
+
+def install_download(key, on_progress=None, cancel=None, opener=None, url=None, min_bytes=MIN_BYTES):
+    """Fetch one of the video helpers (yt-dlp, Deno, ffmpeg) into our own folder; returns the path of its program."""
+    import shutil
+    import zipfile
+    spec = SPECS[key]
+    url = url or spec["url"]
+    target = tool_dir(key)
+    exe = spec["exe"] + (".exe" if sys.platform == "win32" else "")
+    with tempfile.TemporaryDirectory() as tmp:
+        f = os.path.join(tmp, "download." + ("zip" if spec["kind"] == "zip" else "bin"))
+        download(url, f, on_progress, cancel, opener, min_bytes)
+        os.makedirs(target, exist_ok=True)
+        if spec["kind"] == "file":
+            part = os.path.join(target, exe + ".part")
+            shutil.copyfile(f, part)
+            os.replace(part, os.path.join(target, exe))
+            if sys.platform != "win32":
+                os.chmod(os.path.join(target, exe), 0o755)
+        else:
+            try:
+                with zipfile.ZipFile(f) as z:
+                    root = os.path.realpath(target)
+                    for m in z.namelist():                      # never write outside our folder
+                        if not os.path.realpath(os.path.join(target, m)).startswith(root):
+                            raise InstallError("The download looked wrong (unsafe file names). Nothing was installed.")
+                    z.extractall(target)
+            except zipfile.BadZipFile:
+                raise InstallError(f"The {spec['name']} download was not a complete zip file. Try again.")
+    p = installed_path(key)
+    if not p:
+        raise InstallError(f"{spec['name']} downloaded but its program was not found inside. Try again.")
+    if sys.platform != "win32":
+        os.chmod(p, 0o755)
+    return p

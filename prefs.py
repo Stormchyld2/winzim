@@ -32,13 +32,19 @@ DEFAULTS = {
     "tool_7z": "",
     "tool_calibre": "",
     "tool_docker": "",           # blank = find Docker Desktop automatically
+    # videos
+    "tool_ytdlp": "",            # blank = look for it automatically
+    "tool_ffmpeg": "",
+    "tool_deno": "",
+    "video_search_count": 20,    # how many results a keyword search asks for
+    "video_subs": True,          # also save English subtitles when there are some
     # zim library (taking books out of a ZIM)
     "lib_multi": False,          # show checkboxes and the bulk buttons
     "lib_zim": "",
     "lib_folder": "",
 }
 LIMITS = {"downloads_at_once": (1, 6), "retries": (0, 5), "skip_over_mb": (0, 100000), "timeout_s": (5, 120),
-          "pause_ms": (0, 5000), "site_pause_ms": (0, 5000), "zim_max_file_mb": (1, 100000)}
+          "pause_ms": (0, 5000), "site_pause_ms": (0, 5000), "zim_max_file_mb": (1, 100000), "video_search_count": (5, 50)}
 
 _values = copy.deepcopy(DEFAULTS)
 

@@ -24,6 +24,11 @@ def is_compressible(mime):
     return mime.startswith("text/") or mime in _COMPRESSIBLE
 
 
+def _file_size(path):
+    import os
+    return os.path.getsize(path)
+
+
 class ZimWriter:
     def __init__(self, path, metadata=None):
         self.path = path
@@ -50,6 +55,33 @@ class ZimWriter:
         self._open_size[comp] += len(data)
         if self._open_size[comp] >= CLUSTER_TARGET:
             self._flush(comp)
+        return True
+
+    def add_file(self, url, title, mime, path, ns="C"):
+        """Add a (possibly huge) file without loading it into memory: it gets a cluster of its own, stored as it is."""
+        key = (ns, url)
+        if key in self._keys:
+            return False
+        self._keys.add(key)
+        size = _file_size(path)
+        extended = 2 * 4 + size > 0xFFFFFFFF
+        fmt, width = ("<Q", 8) if extended else ("<I", 4)
+        info = 1 | (0x10 if extended else 0)
+        idx = len(self._cluster_sizes)
+        self._clusters.write(bytes([info]) + struct.pack(fmt, 2 * width) + struct.pack(fmt, 2 * width + size))
+        written = 0
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(1 << 20)
+                if not chunk:
+                    break
+                self._clusters.write(chunk)
+                written += len(chunk)
+        if written != size:
+            raise OSError(f"{path} changed while it was being added")
+        self._cluster_sizes.append(1 + 2 * width + size)
+        self._entries.append({"ns": ns, "url": url, "title": title or "", "mime": mime,
+                              "redirect": None, "cluster": idx, "blob": 0})
         return True
 
     def add_redirect(self, url, title, target_url, ns="C", target_ns="C"):

@@ -46,6 +46,7 @@ class SettingsTab(ttk.Frame):
         self._network()
         self._sites()
         self._zimpage()
+        self._videopage()
         self.library = LibraryPanel(self.nb, app)
         self.nb.add(self.library, text="ZIM library")
         self._loading = False
@@ -266,6 +267,58 @@ class SettingsTab(ttk.Frame):
             btn.pack(side="left")
             self.tool_btn[key] = btn
 
+    def _videopage(self):
+        f = self._page("Videos")
+        self._head(f, 0, "Getting videos")
+        self._num(f, 1, "video_search_count", "Results to ask for in a keyword search", 5, 50)
+        self._check(f, 2, "video_subs", "Also save English subtitles when a video has them")
+        self._head(f, 3, "Helper programs (free)")
+        self._note(f, 4, "Getting videos needs yt-dlp. YouTube also needs Deno (so yt-dlp can work out the video address), and ffmpeg "
+                         "joins picture and sound and makes WebM. Leave a box empty to look for the program automatically, or use "
+                         "Install it for me: it is downloaded from the project's own site into this program's own folder.")
+        for i, (key, pref, what) in enumerate((("yt-dlp", "tool_ytdlp", "yt-dlp  (gets the videos)"),
+                                               ("deno", "tool_deno", "Deno  (needed for YouTube)"),
+                                               ("ffmpeg", "tool_ffmpeg", "ffmpeg  (joins and converts)"))):
+            base = 5 + i * 2
+            self._text(f, base, pref, what, 48, browse=True)
+            st = tk.StringVar()
+            self.tool_status[key] = st
+            line = ttk.Frame(f)
+            line.grid(row=base + 1, column=1, columnspan=2, sticky="w", padx=12)
+            ttk.Label(line, textvariable=st, style="Counts.TLabel").pack(side="left")
+            btn = ttk.Button(line, text="Install it for me", command=lambda k=key: self.install_tool(k))
+            btn.pack(side="left", padx=8)
+            self.tool_btn[key] = btn
+            if key == "yt-dlp":
+                self.ytdlp_update_btn = ttk.Button(line, text="Update yt-dlp", command=self.update_ytdlp)
+                self.ytdlp_update_btn.pack(side="left")
+        self._note(f, 11, "YouTube changes often. If getting videos stops working, use Update yt-dlp first. Only get videos you have the "
+                          "right to keep; some sites do not allow downloading in their terms.")
+
+    def update_ytdlp(self):
+        import videos
+        exe = videos.find_tool("yt-dlp")
+        if not exe:
+            messagebox.showinfo(NAME, "yt-dlp is not installed yet. Use Install it for me first.")
+            return
+        self.ytdlp_update_btn.state(["disabled"])
+        result = {}
+
+        def work():
+            try:
+                result["ok"] = videos.update_ytdlp(exe)
+            except Exception as e:
+                result["err"] = str(e)
+
+        def poll():
+            if not result:
+                self.after(300, poll)
+                return
+            self.ytdlp_update_btn.state(["!disabled"])
+            (messagebox.showwarning if "err" in result else messagebox.showinfo)(NAME, result.get("err") or ("yt-dlp: " + result["ok"]))
+        threading.Thread(target=work, daemon=True).start()
+        self.after(300, poll)
+
     def update_crawler(self):
         if not messagebox.askyesno(NAME, "Download the newest crawler now? It can be large (up to about 1 GB) and needs internet."):
             return
@@ -290,7 +343,10 @@ class SettingsTab(ttk.Frame):
         import threading
         import toolinstall
         spec = toolinstall.SPECS[key]
-        msg = (f"Download the official {spec['name']} installer ({spec['size']}) from the project's own site and install it?\n\n"
+        plain = spec["kind"] in ("file", "zip")
+        msg = (f"Download {spec['name']} ({spec['size']}) from the project's own site into this program's folder?\n\n"
+               f"{spec['name']} is free software and stays a separate program." if plain else
+               f"Download the official {spec['name']} installer ({spec['size']}) from the project's own site and install it?\n\n"
                f"{spec['name']} is free software and is installed as a separate program.")
         if spec.get("note"):
             msg += "\n\n" + spec["note"]
@@ -306,7 +362,7 @@ class SettingsTab(ttk.Frame):
 
         def work():
             try:
-                result["path"] = toolinstall.install(key, on_progress=progress)
+                result["path"] = (toolinstall.install_download if plain else toolinstall.install)(key, on_progress=progress)
             except Exception as e:
                 result["err"] = str(e)
 
@@ -324,9 +380,14 @@ class SettingsTab(ttk.Frame):
         self.after(300, poll)
 
     def refresh_tools(self):
+        import toolinstall
         for key, st in self.tool_status.items():
-            p = bookread.find_tool(key)
-            st.set(f"Found: {p}" if p else f"Not found (the chosen path does not exist)" if prefs.get(bookread.TOOLS[key][0]) else "Not found")
+            if key in toolinstall.VIDEO_TOOLS:
+                import videos
+                p, chosen = videos.find_tool(key), prefs.get("tool_" + key.replace("-", ""))
+            else:
+                p, chosen = bookread.find_tool(key), prefs.get(bookread.TOOLS[key][0])
+            st.set(f"Found: {p}" if p else "Not found (the chosen path does not exist)" if chosen else "Not found")
 
     # ------------------------------------------------------------ actions
     def reset(self):

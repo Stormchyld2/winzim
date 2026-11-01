@@ -154,6 +154,21 @@ except RuntimeError as e:
     ok = "None of the videos" in str(e)
 check("too-large files are skipped, and an all-skipped ZIM is refused", ok)
 
+# --- shrinking (the sample is 320x180, so ask for 90 lines high)
+def dims(zimpath, url):
+    rd2 = ZimReader(zimpath); _, e2 = rd2.resolve("C", url); p2 = os.path.join(tmp, "dims.webm"); open(p2, "wb").write(rd2.blob(e2)); rd2.close()
+    out = subprocess.run([FF, "-hide_banner", "-i", p2], capture_output=True, text=True).stderr
+    return re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", out).groups()
+only = os.path.join(tmp, "one.zim")
+rs = videozim.build_videos_zim(src, only, "S", ffmpeg=FF, only_ids={"aaa111"}, shrink=90)
+u1 = next(v["url"] for v in json.loads(ZimReader(only).blob(ZimReader(only).resolve("C", "catalog.json")[1]))["videos"])
+check("shrunk to the requested height", rs["converted"] == 1 and dims(only, u1)[1] == "90", dims(only, u1))
+rs = videozim.build_videos_zim(src, only, "S", ffmpeg=FF, only_ids={"aaa111"}, shrink=720)
+check("never enlarged", rs["converted"] == 0 and dims(only, u1)[1] == "180")
+rs = videozim.build_videos_zim(src, only, "S", ffmpeg=None, only_ids={"aaa111"}, shrink=90)
+check("no ffmpeg: kept, with a note", rs["converted"] == 0 and any("shrink" in n[1] for n in rs["notes"]))
+check("shrink choices", videozim.SHRINK_CHOICES["360p"] == 360 and videozim.SHRINK_CHOICES["Keep as downloaded"] is None)
+
 # --- the test ZIM
 tz = os.path.join(tmp, "test.zim")
 tr = videozim.build_test_zim(tz, FF)

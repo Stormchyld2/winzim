@@ -39,6 +39,7 @@ class VideoTab(ttk.Frame):
         self.zim_name = tk.StringVar(value="Recon Videos")
         self.zim_out = tk.StringVar()
         self.convert = tk.BooleanVar(value=True)
+        self.shrink = tk.StringVar(value="Keep as downloaded")
         self.zim_total = tk.StringVar()
         self.zim_items = []            # [{id,title,duration,size,ext,pick,tags}]
         self.status = tk.StringVar(value="Ready.")
@@ -137,6 +138,8 @@ class VideoTab(ttk.Frame):
         zo = ttk.Frame(z)
         zo.pack(fill="x", padx=10, pady=4)
         ttk.Checkbutton(zo, text="Convert other video types to WebM (needs ffmpeg)", variable=self.convert).pack(side="left")
+        ttk.Label(zo, text="Shrink to:").pack(side="left", padx=(16, 4))
+        ttk.Combobox(zo, textvariable=self.shrink, values=list(videozim.SHRINK_CHOICES), state="readonly", width=18).pack(side="left")
         ttk.Button(zo, text="Tick all", command=lambda: self.set_all(True)).pack(side="left", padx=(24, 0))
         ttk.Button(zo, text="Tick none", command=lambda: self.set_all(False)).pack(side="left", padx=4)
         ttk.Label(zo, textvariable=self.zim_total, style="Amber.TLabel").pack(side="right")
@@ -201,7 +204,7 @@ class VideoTab(ttk.Frame):
     def get_settings(self):
         return {"video_mode": self.mode.get(), "video_get_folder": self.folder.get().strip(), "video_quality": self.quality.get(),
                 "video_zim_folder": self.zim_folder.get().strip(), "video_zim_out": self.zim_out.get().strip(),
-                "video_zim_name": self.zim_name.get().strip()}
+                "video_zim_name": self.zim_name.get().strip(), "video_shrink": self.shrink.get()}
 
     def set_settings(self, s):
         if s.get("video_get_folder"):
@@ -214,6 +217,8 @@ class VideoTab(ttk.Frame):
             self.zim_out.set(s["video_zim_out"])
         if s.get("video_zim_name"):
             self.zim_name.set(s["video_zim_name"])
+        if s.get("video_shrink") in videozim.SHRINK_CHOICES:
+            self.shrink.set(s["video_shrink"])
         if s.get("video_mode") in ("get", "zim"):
             self.set_mode(s["video_mode"])
 
@@ -489,7 +494,8 @@ class VideoTab(ttk.Frame):
 
     def zim_params(self, r):
         folder, out, name, only = r
-        p = {"folder": folder, "out": out, "name": name, "max_file_mb": prefs.get("zim_max_file_mb"), "convert": self.convert.get()}
+        p = {"folder": folder, "out": out, "name": name, "max_file_mb": prefs.get("zim_max_file_mb"), "convert": self.convert.get(),
+             "shrink": videozim.SHRINK_CHOICES.get(self.shrink.get())}
         if only:
             p["only_ids"] = only
         return p
@@ -524,7 +530,7 @@ class VideoTab(ttk.Frame):
         def work():
             try:
                 res = videozim.build_videos_zim(p["folder"], p["out"], p["name"], self.emit, self.cancel, p["max_file_mb"], ffmpeg,
-                                                p["convert"], set(p["only_ids"]) if p.get("only_ids") else None)
+                                                p["convert"], set(p["only_ids"]) if p.get("only_ids") else None, p["shrink"])
                 self.emit({"type": "vzim_done", "path": p["out"], "res": res})
             except RuntimeError as e:
                 self.emit({"type": "vzim_done", "path": None, "res": None} if str(e) == "Cancelled" else {"type": "vlist_error", "text": str(e)})

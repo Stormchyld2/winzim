@@ -154,6 +154,7 @@ def prepare(folder, only_ids=None):
                                                        for p in v["subs"] if re.match(re.escape(v["id"]) + r"\.(.+)\.vtt$", os.path.basename(p))],
                      "tags": clean_tags(info), "description": (info.get("description") or "").strip()[:6000],
                      "date": fmt_date(info.get("upload_date")), "duration": int(dur) if isinstance(dur, (int, float)) else 0,
+                     "height": info.get("height") if isinstance(info.get("height"), int) else None,
                      "views": info.get("view_count") if isinstance(info.get("view_count"), int) else 0,
                      "chapters": [c for c in (info.get("chapters") or []) if isinstance(c, dict) and c.get("title") is not None
                                   and isinstance(c.get("start_time"), (int, float))],
@@ -171,9 +172,25 @@ def tag_counts(recs):
 
 
 # ------------------------------------------------------------------ converting to WebM
-def to_webm(src, dst, ffmpeg, cancel=None, audio_only=False):
+SHRINK_CHOICES = {"Keep as downloaded": None, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
+
+
+def probe_height(path, ffmpeg):
+    """Picture height of a video file, read with ffmpeg (None when it cannot be told)."""
+    lines = []
+    videos.stream([ffmpeg, "-hide_banner", "-i", path], lines.append)
+    for l in lines:
+        m = re.search(r"Video:.*?\b(\d{2,5})x(\d{2,5})\b", l)
+        if m:
+            return int(m.group(2))
+    return None
+
+
+def to_webm(src, dst, ffmpeg, cancel=None, audio_only=False, height=None):
     """Convert one file to WebM (VP9 + Opus) with ffmpeg. Raises RuntimeError with a plain message on failure."""
     cmd = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", src]
+    if height and not audio_only:                 # never makes a small picture bigger
+        cmd += ["-vf", f"scale=-2:min(ih\\,{int(height)})"]
     cmd += (["-vn"] if audio_only else ["-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-deadline", "good", "-cpu-used", "4", "-row-mt", "1"])
     cmd += ["-c:a", "libopus", "-b:a", "64k", dst]
     lines = []
@@ -288,7 +305,7 @@ def catalog_dict(recs, title):
 
 # ------------------------------------------------------------------ building the ZIM
 def build_videos_zim(folder, out_path, title="Recon Videos", on_event=None, cancel=None, max_file_mb=2000, ffmpeg=None,
-                     convert=True, only_ids=None):
+                     convert=True, only_ids=None, shrink=None):
     """Build `out_path` from the videos downloaded into `folder`. Returns dict(size, videos, converted, skipped, tags)."""
     emit = on_event or (lambda e: None)
     cancel = cancel or threading.Event()
@@ -314,17 +331,22 @@ def build_videos_zim(folder, out_path, title="Recon Videos", on_event=None, canc
             emit({"type": "phase", "text": f"Adding video {i} of {len(recs)}: {r['title'][:50]}"})
             src = r["src"]
             ext = os.path.splitext(src)[1].lower()
-            if convert and ffmpeg and not r["audio"] and ext != ".webm":
+            if shrink and not r["audio"] and r["height"] is None and ffmpeg:
+                r["height"] = probe_height(src, ffmpeg)
+            too_big = bool(shrink) and not r["audio"] and (r["height"] is None or r["height"] > shrink)
+            if ffmpeg and not r["audio"] and ((convert and ext != ".webm") or too_big):
                 dst = os.path.join(work, r["id"] + ".webm")
-                emit({"type": "phase", "text": f"Converting to WebM ({i} of {len(recs)}): {r['title'][:40]}"})
+                emit({"type": "phase", "text": f"{'Shrinking' if too_big else 'Converting'} ({i} of {len(recs)}): {r['title'][:40]}"})
                 try:
-                    to_webm(src, dst, ffmpeg, cancel)
+                    to_webm(src, dst, ffmpeg, cancel, height=shrink if too_big else None)
                     src, ext = dst, ".webm"
                     converted += 1
                 except RuntimeError as e:
                     if str(e) == "Cancelled":
                         raise
                     notes.append((r["title"], str(e)))
+            elif too_big and not ffmpeg:
+                notes.append((r["title"], f"Kept at its original size: ffmpeg is needed to shrink it to {shrink}p."))
             elif ext != ".webm" and not r["audio"] and not ffmpeg:
                 notes.append((r["title"], f"Added as {ext[1:].upper()}, which some players cannot play. Install ffmpeg to convert to WebM."))
             size = os.path.getsize(src)

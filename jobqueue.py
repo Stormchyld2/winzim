@@ -7,7 +7,7 @@ Job kinds
   books_zim    folder of books -> ZIM    params: folder, out, name, max_file_mb
   extract      books out of a ZIM        params: zim, folder
   videos_get   download videos           params: entries[{id,title,url,channel,duration}], folder, quality, subs
-  videos_zim   folder of videos -> ZIM   params: folder, out, name, max_file_mb, convert, only_ids (optional)
+  videos_zim   folder of videos -> ZIM   params: folder, out, name, max_file_mb, convert, shrink (height or none), only_ids (optional)
 """
 import json
 import os
@@ -148,7 +148,8 @@ def run_job(job, emit, cancel):
         import videozim
         r = videozim.build_videos_zim(p["folder"], p["out"], p.get("name") or "Recon Videos", emit, cancel,
                                       max_file_mb=p.get("max_file_mb", 2000), ffmpeg=videos.find_tool("ffmpeg"),
-                                      convert=p.get("convert", True), only_ids=set(p["only_ids"]) if p.get("only_ids") else None)
+                                      convert=p.get("convert", True), only_ids=set(p["only_ids"]) if p.get("only_ids") else None,
+                                      shrink=p.get("shrink"))
         return f"{r['videos']} videos, {books.human_size(r['size'])}" + (f", {len(r['skipped'])} left out" if r["skipped"] else "")
     raise RuntimeError(f"Unknown job type {k}")
 

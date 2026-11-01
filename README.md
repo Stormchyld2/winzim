@@ -126,7 +126,7 @@ from the projects' own sites into this program's folder; nothing is bundled. You
 click **Update yt-dlp** first.
 
 ### What Videos will not do
-- It does not log in or get around paywalls, members-only videos or DRM. If a site asks for a sign-in, the message says so.
+- It never asks for your password. For age-restricted videos, or private ones that are yours, Settings > Videos can borrow the sign-in of a browser you are already signed in to (Firefox works best; Chrome and Edge often block it on Windows). Use a spare account: YouTube can limit accounts that download a lot. It does not get around paywalls or DRM.
 - Many sites, YouTube included, do not allow downloading in their terms. Only keep videos you have the right to keep. Public-domain
   and Creative Commons videos, and your own, are the safe choice.
 - It was tested against a stand-in for yt-dlp and with made-up videos, not against live YouTube: what yt-dlp prints can change.

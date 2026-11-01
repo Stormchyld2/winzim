@@ -49,6 +49,14 @@ a = videos.base_args(None, "/x/ffmpeg", "/y/deno")
 check("base args carry ffmpeg and deno", "--ffmpeg-location" in a and "deno:/y/deno" in a and a[:2] == [sys.executable, FAKE], a)
 check("env puts helper folders first", videos.tool_env("/x/ffmpeg", "/y/deno")["PATH"].startswith("/x" + os.pathsep + "/y"))
 
+# --- sign-in
+prefs.set("video_signin", "Firefox"); check("browser sign-in borrowed", videos.signin_args() == ["--cookies-from-browser", "firefox"] and "--cookies-from-browser" in videos.base_args())
+cf = os.path.join(tmp, "cookies.txt"); open(cf, "w").write("# Netscape")
+prefs.set("video_signin", cf); check("cookies file used", videos.signin_args() == ["--cookies", cf])
+prefs.set("video_signin", "/nope/cookies.txt"); check("missing cookies file ignored", videos.signin_args() == [])
+prefs.set("video_signin", ""); check("no sign-in by default", videos.signin_args() == [])
+check("sign-in error points at the setting", "Settings > Videos" in videos.friendly_error(["Sign in to confirm your age"]) and "Firefox" in videos.friendly_error(["Could not copy Chrome cookie database"]))
+
 # --- listing
 got = []
 es = videos.list_entries(videos.classify("water", 7), on_line=got.append, popen=None)

@@ -37,6 +37,7 @@ DEFAULTS = {
     "tool_ffmpeg": "",
     "tool_deno": "",
     "video_search_count": 20,    # how many results a keyword search asks for
+    "video_signin": "",          # "" (none) | firefox | chrome | edge | brave | a cookies.txt file path
     "video_subs": True,          # also save English subtitles when there are some
     # zim library (taking books out of a ZIM)
     "lib_multi": False,          # show checkboxes and the bulk buttons

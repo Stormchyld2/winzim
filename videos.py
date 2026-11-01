@@ -106,6 +106,19 @@ def tool_env(ffmpeg=None, deno=None):
     return env
 
 
+SIGNIN_BROWSERS = ("firefox", "chrome", "edge", "brave")
+
+
+def signin_args():
+    """Borrow the sign-in of a browser you are already signed in to (or a cookies.txt file). Your password is never seen."""
+    s = (prefs.get("video_signin") or "").strip()
+    if not s:
+        return []
+    if s.lower() in SIGNIN_BROWSERS:
+        return ["--cookies-from-browser", s.lower()]
+    return ["--cookies", s] if os.path.isfile(s) else []
+
+
 def launcher(path):
     """The command that runs a helper: the program itself, or Python for a .py stand-in (used by the tests)."""
     return [sys.executable, path] if path.lower().endswith(".py") else [path]
@@ -124,6 +137,7 @@ def base_args(ytdlp=None, ffmpeg=None, deno=None):
     proxy = prefs.get("proxy")
     if proxy:
         cmd += ["--proxy", proxy]
+    cmd += signin_args()
     return cmd
 
 
@@ -204,8 +218,12 @@ def list_entries(plan, cancel=None, ytdlp=None, ffmpeg=None, deno=None, on_line=
 def friendly_error(lines):
     """Plain words for the most useful line yt-dlp printed."""
     text = " ".join(lines[-6:]).lower()
-    if "sign in to confirm" in text or "not a bot" in text:
-        return "The site asked for a sign-in. Try again later, or pick a browser to borrow its sign-in in Settings > Video tools."
+    if "could not copy" in text and "cookie" in text or "failed to decrypt" in text or "cookies database" in text:
+        return ("Could not read the browser's sign-in. Close that browser and try again, or choose Firefox in Settings > Videos "
+                "(Chrome and Edge often block this on Windows).")
+    if "sign in to confirm" in text or "not a bot" in text or "age-restricted" in text or "confirm your age" in text:
+        return ("The site asked for a sign-in. In Settings > Videos pick the browser you are signed in to YouTube with "
+                "(Firefox works best), then try again.")
     if "private video" in text:
         return "That video is private."
     if "video unavailable" in text or "not available" in text:

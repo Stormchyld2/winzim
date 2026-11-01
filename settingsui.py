@@ -272,6 +272,14 @@ class SettingsTab(ttk.Frame):
         self._head(f, 0, "Getting videos")
         self._num(f, 1, "video_search_count", "Results to ask for in a keyword search", 5, 50)
         self._check(f, 2, "video_subs", "Also save English subtitles when a video has them")
+        ttk.Label(f, text="YouTube sign-in").grid(row=12, column=0, sticky="w", **PAD)
+        ttk.Combobox(f, textvariable=self._var("video_signin", "str"), values=["", "firefox", "chrome", "edge", "brave"],
+                     width=14).grid(row=12, column=1, sticky="w", **PAD)
+        self._note(f, 13, "Leave empty to get public videos. To get age-restricted videos, or private ones that are yours, sign in to YouTube "
+                          "in that browser as usual, close it, and pick it here: the program borrows the browser's sign-in and never sees "
+                          "your password. Firefox works best (Chrome and Edge often block this on Windows). You can also type the path of "
+                          "a cookies.txt file. It does not unlock paid or copy-protected videos. Heavy downloading while signed in can get "
+                          "an account limited by YouTube, so use a spare account, not your main one.")
         self._head(f, 3, "Helper programs (free)")
         self._note(f, 4, "Getting videos needs yt-dlp. YouTube also needs Deno (so yt-dlp can work out the video address), and ffmpeg "
                          "joins picture and sound and makes WebM. Leave a box empty to look for the program automatically, or use "
@@ -292,7 +300,7 @@ class SettingsTab(ttk.Frame):
             if key == "yt-dlp":
                 self.ytdlp_update_btn = ttk.Button(line, text="Update yt-dlp", command=self.update_ytdlp)
                 self.ytdlp_update_btn.pack(side="left")
-        self._note(f, 11, "YouTube changes often. If getting videos stops working, use Update yt-dlp first. Only get videos you have the "
+        self._note(f, 14, "YouTube changes often. If getting videos stops working, use Update yt-dlp first. Only get videos you have the "
                           "right to keep; some sites do not allow downloading in their terms.")
 
     def update_ytdlp(self):
